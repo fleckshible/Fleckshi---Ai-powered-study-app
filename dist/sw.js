@@ -1,9 +1,9 @@
-const CACHE_NAME = 'fleckshi-v4';
+const CACHE_NAME = 'fleckshi-v5';
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icons/icon.svg',
+  './icons/favicon-32.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png'

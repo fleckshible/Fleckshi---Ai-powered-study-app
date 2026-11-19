@@ -1225,8 +1225,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Register PWA Service Worker
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+// Register PWA Service Worker (web/HTTPS only; skipped in packaged Electron desktop)
+if (
+  'serviceWorker' in navigator &&
+  import.meta.env.PROD &&
+  window.location.protocol !== 'file:' &&
+  !window.fleckshiDesktop?.isDesktop
+) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch((err) => {
       console.warn('Service worker registration skipped:', err);

@@ -43,7 +43,25 @@ npm run preview
 
 ## Install the app
 
-Fleckshi is a Progressive Web App. [Download the v2.2.0 production build](https://github.com/fleckshible/revision-ledger/raw/refs/heads/main/fleckshi-v2.2.0-pwa.zip). To install it, serve the build from an HTTPS site and use the browser's **Install app** or **Add to Home screen** option. Locally, run `npm run dev`; localhost also supports PWA installation.
+### Windows Desktop (`.exe` Installer & Portable)
+
+- **Installer:** Download `Fleckshi-Setup-2.2.0-x64.exe` from the GitHub Releases assets and run it to install **Fleckshi** with Start Menu and Desktop shortcuts. Existing user data (`localStorage` and IndexedDB notebooks) is preserved across launches and upgrades.
+- **Portable:** Download `Fleckshi-Portable-2.2.0-x64.exe` to run Fleckshi directly without running setup.
+- **Windows SmartScreen note:** The current Windows builds are **not code-signed**, so Windows Defender SmartScreen may show *"Windows protected your PC"*. If you trust the release downloaded from this repository, click **More info** -> **Run anyway**.
+
+To run or build the Windows desktop app locally:
+
+```powershell
+# Run Vite + Electron together in development
+npm run desktop:dev
+
+# Build dist/ and package the Windows x64 NSIS installer + portable .exe into dist-desktop/
+npm run desktop:build
+```
+
+### Web / PWA
+
+Fleckshi is also a Progressive Web App. [Download the v2.2.0 production build](https://github.com/fleckshible/revision-ledger/raw/refs/heads/main/fleckshi-v2.2.0-pwa.zip). To install it, serve the build from an HTTPS site and use the browser's **Install app** or **Add to Home screen** option. Locally, run `npm run dev`; localhost also supports PWA installation.
 
 ## Using Study Notebook & Gemini BYOK
 
