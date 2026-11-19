@@ -1,3 +1,4 @@
+export const FLECKSHI_ASSET_BASE = './assets/fleckshi';
 export const FLECKSHI_SPRITE_URL = './assets/fleckshi/fleckshi-emotes-source.png';
 
 export const FLECKSHI_GRID = {
@@ -15,7 +16,14 @@ const EMOTE_ROWS = [
 export const FLECKSHI_EMOTES = Object.freeze(
   EMOTE_ROWS.reduce((acc, rowLabels, row) => {
     rowLabels.forEach((label, col) => {
-      acc[label.toLowerCase()] = Object.freeze({ col, row, label });
+      const key = label.toLowerCase();
+      acc[key] = Object.freeze({
+        key,
+        col,
+        row,
+        label,
+        src: `${FLECKSHI_ASSET_BASE}/${key}.png`
+      });
     });
     return acc;
   }, {})
@@ -24,9 +32,9 @@ export const FLECKSHI_EMOTES = Object.freeze(
 let cachedProbePromise = null;
 
 /**
- * Look up grid metadata for a Fleckshi expression, defaulting safely to Idle.
+ * Look up metadata & individual PNG path for a Fleckshi expression, defaulting to Idle.
  * @param {string} name
- * @returns {{ col: number, row: number, label: string }}
+ * @returns {{ key: string, col: number, row: number, label: string, src: string }}
  */
 export function getEmoteSpec(name) {
   const key = typeof name === 'string' ? name.trim().toLowerCase() : '';
@@ -34,36 +42,24 @@ export function getEmoteSpec(name) {
 }
 
 /**
- * Compute CSS percentage `background-position` coordinates for an 8x4 sprite sheet
- * sized with `background-size: 800% 400%`.
+ * Return the URL for an individual transparent expression PNG.
  * @param {string} name
- * @returns {{ xPct: number, yPct: number }}
+ * @returns {string}
  */
-export function getEmoteBackgroundPosition(name) {
-  const spec = getEmoteSpec(name);
-  const maxCol = Math.max(1, FLECKSHI_GRID.cols - 1);
-  const maxRow = Math.max(1, FLECKSHI_GRID.rows - 1);
-  return {
-    xPct: (spec.col / maxCol) * 100,
-    yPct: (spec.row / maxRow) * 100
-  };
+export function getEmoteImageUrl(name) {
+  return getEmoteSpec(name).src;
 }
 
 /**
- * Probe once per session whether `./assets/fleckshi/fleckshi-emotes-source.png`
+ * Probe once per session whether `./assets/fleckshi/idle.png`
  * exists and decodes cleanly in the browser. Never polls.
- * @returns {Promise<{ available: boolean, width: number, height: number, cellAspect: number }>}
+ * @returns {Promise<{ available: boolean, width: number, height: number }>}
  */
 export function probeFleckshiSprite() {
   if (cachedProbePromise) return cachedProbePromise;
 
   if (typeof Image === 'undefined') {
-    cachedProbePromise = Promise.resolve({
-      available: false,
-      width: 0,
-      height: 0,
-      cellAspect: 1
-    });
+    cachedProbePromise = Promise.resolve({ available: false, width: 0, height: 0 });
     return cachedProbePromise;
   }
 
@@ -73,23 +69,12 @@ export function probeFleckshiSprite() {
     img.onload = () => {
       const width = Number(img.naturalWidth) || 0;
       const height = Number(img.naturalHeight) || 0;
-      if (width > 0 && height > 0) {
-        const cellW = width / FLECKSHI_GRID.cols;
-        const cellH = height / FLECKSHI_GRID.rows;
-        resolve({
-          available: true,
-          width,
-          height,
-          cellAspect: cellH > 0 ? cellW / cellH : 1
-        });
-      } else {
-        resolve({ available: false, width: 0, height: 0, cellAspect: 1 });
-      }
+      resolve(width > 0 && height > 0 ? { available: true, width, height } : { available: false, width: 0, height: 0 });
     };
     img.onerror = () => {
-      resolve({ available: false, width: 0, height: 0, cellAspect: 1 });
+      resolve({ available: false, width: 0, height: 0 });
     };
-    img.src = FLECKSHI_SPRITE_URL;
+    img.src = FLECKSHI_EMOTES.idle.src;
   });
 
   return cachedProbePromise;

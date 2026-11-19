@@ -137,7 +137,7 @@ export function renderSubjectView(
       `<main class="page">` +
       `<div class="empty-state">` +
       `<h2 class="serif">No subject yet<span class="title-dot"></span></h2>` +
-      `<p>Add a subject on the left or press <span class="mono">Ctrl+K</span> to begin tracking your syllabus.</p>` +
+      `<p>Add a subject on the left to begin tracking your syllabus.</p>` +
       `</div>` +
       `</main>`
     );

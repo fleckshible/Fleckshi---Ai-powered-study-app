@@ -70,10 +70,6 @@ export function renderSidebar(state, currentTheme = 'dark', { collapsed = false 
     `<div class="cover-top">` +
     `<h1 class="cover-title serif">Revision Ledger<span class="title-dot"></span></h1>` +
     `<div class="cover-top-actions">` +
-    `<button type="button" class="cmd-trigger-btn" id="openCmdBarBtn" title="Command Palette (Ctrl + K)">${renderAnimatedIcon(
-      'action:cmd',
-      { size: 16 }
-    )}<span class="nav-label">Ctrl+K</span></button>` +
     `<button type="button" class="sidebar-collapse-btn" id="toggleSidebarCollapseBtn" aria-expanded="${!collapsed}" aria-label="${
       collapsed ? 'Expand sidebar' : 'Collapse sidebar to icons'
     }" title="${collapsed ? 'Expand sidebar' : 'Collapse sidebar to icons'}">${collapseSvg}</button>` +
