@@ -1,0 +1,574 @@
+/* ---------- Fleckshi UI Guide ---------- */
+.fleckshi-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 75;
+}
+
+.fleckshi-launcher {
+  position: fixed;
+  right: 18px;
+  bottom: 108px;
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px 7px 8px;
+  border-radius: 999px;
+  background: var(--glass-elevated, var(--surface));
+  color: var(--text);
+  border: 1px solid var(--border-glow, var(--border));
+  box-shadow: var(--glass-shadow, 0 10px 26px rgba(0, 0, 0, 0.26));
+  backdrop-filter: blur(14px);
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 75;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+body.fleckshi-in-notebook .fleckshi-launcher {
+  right: 16px;
+  bottom: 60px;
+}
+
+.fleckshi-launcher:hover {
+  transform: translateY(-1px);
+  border-color: var(--cyan);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+}
+
+.fleckshi-launcher:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.fleckshi-launcher-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--sapphire), var(--cyan));
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.fleckshi-stage {
+  position: fixed;
+  right: 18px;
+  bottom: 108px;
+  width: min(336px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+  z-index: 76;
+}
+
+body.fleckshi-in-notebook .fleckshi-stage {
+  right: 16px;
+  bottom: 60px;
+}
+
+.fleckshi-stage.is-positioned {
+  right: auto;
+  bottom: auto;
+  align-items: flex-start;
+}
+
+/* Compact, friendly white cloud speech bubble */
+.fleckshi-cloud {
+  position: relative;
+  width: 100%;
+  pointer-events: auto;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 22px;
+  padding: 13px 15px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.22), 0 0 0 3px rgba(255, 255, 255, 0.14);
+  overflow: visible;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+}
+
+.fleckshi-cloud::before,
+.fleckshi-cloud::after {
+  content: '';
+  position: absolute;
+  background: #ffffff;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  pointer-events: none;
+}
+
+/* Small cloud tail pointing down to the character dock */
+.fleckshi-cloud::before {
+  width: 13px;
+  height: 13px;
+  right: 26px;
+  bottom: -7px;
+}
+
+.fleckshi-cloud::after {
+  width: 8px;
+  height: 8px;
+  right: 19px;
+  bottom: -14px;
+}
+
+.fleckshi-stage.is-positioned .fleckshi-cloud::before {
+  right: auto;
+  left: 26px;
+}
+
+.fleckshi-stage.is-positioned .fleckshi-cloud::after {
+  right: auto;
+  left: 19px;
+}
+
+.fleckshi-cloud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.fleckshi-step-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fleckshi-cloud-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.fleckshi-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.fleckshi-mini-btn:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.fleckshi-mini-btn[aria-pressed='true'] {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #92400e;
+}
+
+.fleckshi-mini-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.fleckshi-cloud-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.fleckshi-cloud-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e293b;
+}
+
+.fleckshi-cloud-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.42;
+  color: #475569;
+}
+
+/* Constrained inner scroll area ONLY for multi-item help content */
+.fleckshi-cloud-scroll {
+  margin-top: 10px;
+  max-height: min(230px, 34dvh);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* Inline Subject Confirmation Form inside Cloud */
+.fleckshi-subject-box {
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.fleckshi-subject-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.fleckshi-subject-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.fleckshi-subject-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #94a3b8;
+  background: #ffffff;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.fleckshi-subject-input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+
+.fleckshi-confirm-box {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1e3a8a;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fleckshi-feedback {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+  padding: 6px 9px;
+  border-radius: 8px;
+}
+
+.fleckshi-feedback.is-error {
+  background: #fff1f2;
+  color: #9f1239;
+  border: 1px solid #fda4af;
+}
+
+.fleckshi-feedback.is-success {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+/* Suggestions Grid inside Cloud */
+.fleckshi-suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.fleckshi-suggest-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.fleckshi-suggest-btn span {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.fleckshi-suggest-btn:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.fleckshi-suggest-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.fleckshi-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fleckshi-btn-primary,
+.fleckshi-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.fleckshi-btn-primary {
+  background: #1d4ed8;
+  color: #ffffff;
+  border: 1px solid #1d4ed8;
+}
+
+.fleckshi-btn-primary:hover {
+  background: #1e40af;
+}
+
+.fleckshi-btn-secondary {
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+.fleckshi-btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+.fleckshi-btn-primary:focus-visible,
+.fleckshi-btn-secondary:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Compact Character Dock directly below the Cloud */
+.fleckshi-character-dock {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 12px 5px 5px;
+  border-radius: 14px;
+  background: var(--glass-elevated, var(--surface));
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-shadow, 0 10px 26px rgba(0, 0, 0, 0.24));
+  backdrop-filter: blur(14px);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  transition: border-color 0.14s ease, transform 0.14s ease;
+}
+
+.fleckshi-character-dock:hover {
+  border-color: var(--cyan);
+}
+
+.fleckshi-character-dock:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.fleckshi-portrait {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--surface-2, var(--bg-subtle));
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fleckshi-sprite {
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
+  background-size: 800% 400%;
+  display: block;
+}
+
+.fleckshi-portrait-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2, var(--bg-subtle));
+  color: var(--text-dim);
+}
+
+.fleckshi-character-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fleckshi-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fleckshi-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.fleckshi-mood-tag {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+:root[data-theme="light"] .fleckshi-mood-tag {
+  color: var(--sapphire);
+}
+
+.fleckshi-dock-state {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.fleckshi-spotlight-ring {
+  box-shadow: 0 0 0 3px var(--cyan), 0 0 18px rgba(59, 130, 246, 0.45) !important;
+  border-radius: 8px;
+  transition: box-shadow 0.2s ease;
+}
+
+.fleckshi-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 760px) {
+  .fleckshi-launcher,
+  body.fleckshi-in-notebook .fleckshi-launcher {
+    right: 12px;
+    bottom: 108px;
+  }
+
+  .fleckshi-stage,
+  body.fleckshi-in-notebook .fleckshi-stage,
+  .fleckshi-stage.is-positioned {
+    left: 12px !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: 108px !important;
+    width: calc(100vw - 24px) !important;
+    max-width: 366px !important;
+    align-items: flex-end;
+  }
+
+  .fleckshi-cloud {
+    padding: 12px 13px 11px;
+  }
+
+  .fleckshi-dock-state {
+    white-space: normal;
+  }
+
+  .fleckshi-cloud-scroll {
+    max-height: 28dvh;
+  }
+
+  .fleckshi-suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .fleckshi-stage.is-positioned .fleckshi-cloud::before {
+    left: auto;
+    right: 26px;
+  }
+
+  .fleckshi-stage.is-positioned .fleckshi-cloud::after {
+    left: auto;
+    right: 19px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleckshi-launcher,
+  .fleckshi-mini-btn,
+  .fleckshi-suggest-btn,
+  .fleckshi-btn-primary,
+  .fleckshi-btn-secondary,
+  .fleckshi-character-dock,
+  .fleckshi-spotlight-ring {
+    transition: none !important;
+  }
+}
+
+:root[data-fx="minimal"] .fleckshi-launcher,
+:root[data-fx="minimal"] .fleckshi-mini-btn,
+:root[data-fx="minimal"] .fleckshi-suggest-btn,
+:root[data-fx="minimal"] .fleckshi-btn-primary,
+:root[data-fx="minimal"] .fleckshi-btn-secondary,
+:root[data-fx="minimal"] .fleckshi-character-dock,
+:root[data-fx="minimal"] .fleckshi-spotlight-ring {
+  transition: none !important;
+}
