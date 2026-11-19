@@ -12,8 +12,8 @@ import {
   buildThinkingConfigForModel,
   filterAndNormalizeLiveModels,
   getModelMeta,
-  resolveModelForTask,
-  resolvePresetModel
+  recommendFreeDefaultModel,
+  resolveModelForTask
 } from './modelCatalog.js';
 
 export { Type };
@@ -157,7 +157,7 @@ export async function testApiKeyAndListModels(apiKeyOverride = null) {
     const models = filterAndNormalizeLiveModels(rawItems);
     setCachedLiveModels(models);
 
-    const recommendedModel = resolvePresetModel('balanced', models);
+    const recommendedModel = recommendFreeDefaultModel(models);
     return { ok: true, models, recommendedModel };
   } catch (err) {
     throw normalizeGeminiError(err);

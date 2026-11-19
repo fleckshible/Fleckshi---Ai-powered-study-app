@@ -63,6 +63,7 @@ import {
   createQueueRunner
 } from '../features/generationQueue.js';
 import { advanceSrsWithConfidence } from '../features/spacedRevision.js';
+import { buildPrintableHtml, printHtmlDocument } from '../features/pdfExporter.js';
 import {
   animateDecodeTitle,
   animateKeyLockedMorph,
@@ -193,10 +194,14 @@ let chatDrawerOpen = false;
 let scopeSheetOpen = false;
 let scanModalOpen = false;
 let treeModalOpen = false;
+let isNotebookFullscreen = false;
+let isOutlineCollapsed = false;
+let pdfPreviewOpen = false;
 const tabModelOverrides = {};
 
 let isStreaming = false;
 let isGeneratingTab = false;
+let generatingArtifactKey = null;
 let activeAbortCtrl = null;
 let stopCursorTimer = null;
 let fallbackToastMsg = '';
@@ -213,6 +218,7 @@ let applyLedgerModalOpen = false;
 
 // Key & Multi-Model Routing Modal state
 let keyModalOpen = false;
+let confirmDeleteKey = false;
 let modelSearchQuery = '';
 let keyTestStatus = '';
 let keyTestError = '';
@@ -286,6 +292,7 @@ export function unmountNotebookView() {
   cleanupNotebookEffects();
   isStreaming = false;
   isGeneratingTab = false;
+  generatingArtifactKey = null;
   splitMenuOpen = false;
   addSourceMenuOpen = false;
   chatDrawerOpen = false;
@@ -396,6 +403,18 @@ function renderTopHeader(subject, vaultConfig, liveModels) {
     `<span class="ui-chip ui-chip--accent">${escapeHtml(topMeta.label)}</span>` +
     `</div>` +
     `<div class="nb-top-actions">` +
+    (topTab === 'learn' || topTab === 'practice'
+      ? `<button type="button" class="nb-model-chip" id="nbToggleOutlineRailBtn" aria-pressed="${Boolean(
+          isOutlineCollapsed
+        )}" title="Toggle Syllabus Outline Rail">${
+          isOutlineCollapsed ? 'Show Outline' : 'Hide Outline'
+        }</button>`
+      : '') +
+    `<button type="button" class="nb-model-chip" id="nbToggleFullscreenBtn" aria-pressed="${Boolean(
+      isNotebookFullscreen
+    )}" title="Toggle Fullscreen Focus Mode">${
+      isNotebookFullscreen ? 'Exit Focus' : 'Fullscreen'
+    }</button>` +
     (qRunning
       ? `<button type="button" class="nb-model-chip" id="nbOpenQueuePillBtn">${renderAnimatedIcon(
           'home:queue',
@@ -437,6 +456,105 @@ function renderRegenConfirmModal() {
     `<div class="modal-actions">` +
     `<button type="button" class="btn-secondary" id="nbCancelRegenBottomBtn">Keep Current</button>` +
     `<button type="button" class="btn-primary" id="nbConfirmRegenBtn">Regenerate Now</button>` +
+    `</div>` +
+    `</div>` +
+    `</div>`
+  );
+}
+
+function buildActivePdfDocument(subject, allChunks) {
+  if (!activeNotebook || !subject) return '';
+  const { activeTool, notesMode } = getActiveWorkspaceState(activeNotebook);
+  const tool = activeTool || 'notes';
+  const scope = resolveActiveScopeDetails(activeNotebook, subject, tool);
+  const toolLabel = TAB_TOOL_LABELS[tool] || tool;
+
+  let bodyHtml = '';
+  if (tool === 'notes' && notesMode === 'mine') {
+    const targetTopic = (subject.topics || []).find(
+      (t) => t.name.trim().toLowerCase() === scope.scopeLabel.trim().toLowerCase()
+    );
+    const noteText = targetTopic?.notes || document.getElementById('nbTopicNotesTextarea')?.value || '';
+    bodyHtml = noteText.trim()
+      ? renderRichMarkdown(noteText, allChunks)
+      : '<p>No personal notes written for this scope yet.</p>';
+  } else {
+    const artifact = getScopedArtifact(activeNotebook, tool, scope.scopeType, scope.scopeId);
+    if (!artifact) {
+      bodyHtml = '<p>No generated content saved for this scope yet.</p>';
+    } else if (typeof artifact.content === 'string') {
+      bodyHtml = renderRichMarkdown(artifact.content, allChunks);
+    } else if (tool === 'timeline' && Array.isArray(artifact.content)) {
+      bodyHtml =
+        '<ol>' +
+        artifact.content
+          .map(
+            (ev) =>
+              `<li><strong>${escapeHtml(ev.phase || ev.title || 'Stage')}</strong>` +
+              (ev.detail ? ` — ${escapeHtml(ev.detail)}` : '') +
+              `</li>`
+          )
+          .join('') +
+        '</ol>';
+    } else if (tool === 'mindMap' && artifact.content?.rootLabel) {
+      const branches = Array.isArray(artifact.content.branches) ? artifact.content.branches : [];
+      bodyHtml =
+        `<h2>${escapeHtml(artifact.content.rootLabel)}</h2>` +
+        '<ul>' +
+        branches
+          .map(
+            (b) =>
+              `<li><strong>${escapeHtml(b.label || '')}</strong>` +
+              (Array.isArray(b.children) && b.children.length
+                ? `<ul>${b.children.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`
+                : '') +
+              `</li>`
+          )
+          .join('') +
+        '</ul>';
+    } else if (tool === 'revisionPlan' && artifact.content?.schedule) {
+      const sched = Array.isArray(artifact.content.schedule) ? artifact.content.schedule : [];
+      bodyHtml =
+        '<table><thead><tr><th>Day</th><th>Topic</th><th>Action</th></tr></thead><tbody>' +
+        sched
+          .map(
+            (row) =>
+              `<tr><td>${escapeHtml(String(row.day || row.date || ''))}</td><td>${escapeHtml(
+                row.topicName || row.topic || ''
+              )}</td><td>${escapeHtml(row.action || row.focus || '')}</td></tr>`
+          )
+          .join('') +
+        '</tbody></table>';
+    } else {
+      bodyHtml = `<pre>${escapeHtml(JSON.stringify(artifact.content, null, 2))}</pre>`;
+    }
+  }
+
+  return buildPrintableHtml({
+    subjectName: subject.name,
+    scopeLabel: scope.scopeLabel,
+    toolLabel,
+    bodyHtml
+  });
+}
+
+function renderPdfPreviewModal(subject, allChunks) {
+  if (!pdfPreviewOpen) return '';
+  const htmlDoc = buildActivePdfDocument(subject, allChunks);
+  return (
+    `<div class="modal-backdrop" id="nbPdfPreviewBackdrop" role="dialog" aria-modal="true" aria-labelledby="nbPdfPreviewTitle">` +
+    `<div class="modal-card nb-modal-lg u-stack-md">` +
+    `<div class="modal-header">` +
+    `<h2 class="serif" id="nbPdfPreviewTitle">PDF Export Preview<span class="title-dot"></span></h2>` +
+    `<button type="button" class="topic-del" id="nbClosePdfPreviewBtn" aria-label="Close PDF preview">&times;</button>` +
+    `</div>` +
+    `<p class="u-text-sm" style="margin:0;">Clean light-paper layout with equations, headings, and page numbers. Choose <strong>Save as PDF</strong> in your browser print dialog.</p>` +
+    `<iframe class="nb-pdf-preview-frame" id="nbPdfPreviewFrame" title="PDF Print Preview" srcdoc="${escapeHtml(
+      htmlDoc
+    )}"></iframe>` +
+    `<div class="modal-actions u-row-end">` +
+    `<button type="button" class="btn-secondary btn-md" id="nbClosePdfPreviewFooterBtn">Close</button>` +
+    `<button type="button" class="btn-primary btn-md" id="nbPrintPdfBtn">Print / Save as PDF</button>` +
     `</div>` +
     `</div>` +
     `</div>`
@@ -505,16 +623,24 @@ function renderNotebookDom(animateEntrance = false) {
       chatDrawerOpen
     });
   } else if (topTab === 'plan') {
+    const planScope = resolveActiveScopeDetails(activeNotebook, subject, 'revisionPlan');
+    const planKey = makeArtifactKey('revisionPlan', planScope.scopeType, planScope.scopeId);
     stageHtml = renderPlanWorkspace({
       notebook: activeNotebook,
       subject,
       vaultConfig,
       liveModels,
-      isGeneratingTab,
+      isGeneratingTab: Boolean(isGeneratingTab && generatingArtifactKey === planKey),
       splitMenuOpen,
       tabModelOverride: tabModelOverrides.revisionPlan || null
     });
   } else {
+    const toolScope = activeTool
+      ? resolveActiveScopeDetails(activeNotebook, subject, activeTool)
+      : null;
+    const toolKey = toolScope
+      ? makeArtifactKey(activeTool, toolScope.scopeType, toolScope.scopeId)
+      : null;
     stageHtml = renderScopedGeneratorWorkspace({
       parentTab: topTab,
       activeView: topTab === 'practice' ? practiceView : learnView,
@@ -525,12 +651,13 @@ function renderNotebookDom(animateEntrance = false) {
       allChunks,
       vaultConfig,
       liveModels,
-      isGeneratingTab,
+      isGeneratingTab: Boolean(isGeneratingTab && toolKey && generatingArtifactKey === toolKey),
       editNoteMode,
       fcSession,
       quizSession,
       splitMenuOpen,
-      tabModelOverride: tabModelOverrides[activeTool] || null
+      tabModelOverride: tabModelOverrides[activeTool] || null,
+      outlineCollapsed: isOutlineCollapsed
     });
   }
 
@@ -563,7 +690,8 @@ function renderNotebookDom(animateEntrance = false) {
       keyTestStatus,
       keyTestError,
       pingResultText,
-      defaultGroundingMode: activeNotebook.groundingMode || 'sources'
+      defaultGroundingMode: activeNotebook.groundingMode || 'sources',
+      confirmDeleteKey
     }) +
     renderApplyLedgerModal({
       open: applyLedgerModalOpen,
@@ -583,6 +711,7 @@ function renderNotebookDom(animateEntrance = false) {
       notebook: activeNotebook,
       selectedVersionIdx
     }) +
+    renderPdfPreviewModal(subject, allChunks) +
     renderOcrReviewModal(ocrQueue) +
     renderPasteAndTopicNotesModals({
       pasteModalOpen,
@@ -605,7 +734,7 @@ function renderNotebookDom(animateEntrance = false) {
   if (needsFullShell) {
     cleanupNotebookEffects();
     mount.innerHTML =
-      `<div class="nb-shell" id="nbRootShell" data-subject-id="${escapeHtml(
+      `<div class="nb-shell${isNotebookFullscreen ? ' is-fullscreen' : ''}" id="nbRootShell" data-subject-id="${escapeHtml(
         String(subject.id)
       )}" data-nb-section="${escapeHtml(topTab)}" data-nb-accent="${escapeHtml(accentKey)}">` +
       `<div class="nb-ambient-canvas" id="nbAmbientCanvas" aria-hidden="true">` +
@@ -628,6 +757,7 @@ function renderNotebookDom(animateEntrance = false) {
     stageChanged = true;
   } else {
     // Keyed targeted update: preserve #nbRootShell & #nbAmbientCanvas so UI toggles never rebuild them
+    existingShell.classList.toggle('is-fullscreen', isNotebookFullscreen);
     existingShell.setAttribute('data-nb-section', topTab);
     existingShell.setAttribute('data-nb-accent', accentKey);
 
@@ -659,6 +789,7 @@ function renderNotebookDom(animateEntrance = false) {
   const shell = document.getElementById('nbRootShell');
   const stage = document.getElementById('nbTabStage');
   const modalHost = document.getElementById('nbModalHost');
+  document.body.classList.toggle('nb-fullscreen-active', isNotebookFullscreen);
 
   if (needsFullShell) {
     animateNotebookOpen(shell);
@@ -801,7 +932,7 @@ function maybeAutoGenerateOnTabOpen() {
   const autoEnabled =
     scope.scopeType === 'subject'
       ? Boolean(activeNotebook.autoGenerateOnTabOpen?.wholeSubject)
-      : activeNotebook.autoGenerateOnTabOpen?.scoped !== false;
+      : Boolean(activeNotebook.autoGenerateOnTabOpen?.scoped);
 
   if (!autoEnabled) return;
 
@@ -1106,6 +1237,8 @@ async function handleChatSubmit(question, allChunks) {
 async function runTabGenerator(tabId, subject, opts = {}) {
   if (isGeneratingTab || isStreaming || !activeNotebook) return;
   const scope = opts.scopeOverride || resolveActiveScopeDetails(activeNotebook, subject, tabId);
+  const artifactKey = makeArtifactKey(tabId, scope.scopeType, scope.scopeId);
+  if (generatingArtifactKey === artifactKey) return;
   const modelOverride = opts.modelOverride || null;
   const existing = getScopedArtifact(activeNotebook, tabId, scope.scopeType, scope.scopeId);
 
@@ -1124,6 +1257,7 @@ async function runTabGenerator(tabId, subject, opts = {}) {
   confirmRegenState = null;
   clearQuizTimer();
   isGeneratingTab = true;
+  generatingArtifactKey = artifactKey;
   activeAbortCtrl = new AbortController();
   renderNotebookDom(false);
 
@@ -1194,6 +1328,7 @@ async function runTabGenerator(tabId, subject, opts = {}) {
   } finally {
     genStreamThrottle.cancel();
     isGeneratingTab = false;
+    generatingArtifactKey = null;
     activeAbortCtrl = null;
     renderNotebookDom(false);
   }
@@ -1431,23 +1566,49 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
           keyModalOpen ||
           pasteModalOpen ||
           topicNotesModalOpen ||
+          pdfPreviewOpen ||
           versionModalKey ||
-          confirmRegenState
+          confirmRegenState ||
+          isNotebookFullscreen
         ) {
           e.preventDefault();
-          splitMenuOpen = false;
-          addSourceMenuOpen = false;
-          chatDrawerOpen = false;
-          scopeSheetOpen = false;
-          scanModalOpen = false;
-          treeModalOpen = false;
-          applyLedgerModalOpen = false;
-          queueModalOpen = false;
-          keyModalOpen = false;
-          pasteModalOpen = false;
-          topicNotesModalOpen = false;
-          versionModalKey = null;
-          confirmRegenState = null;
+          if (
+            splitMenuOpen ||
+            addSourceMenuOpen ||
+            chatDrawerOpen ||
+            scopeSheetOpen ||
+            scanModalOpen ||
+            treeModalOpen ||
+            applyLedgerModalOpen ||
+            queueModalOpen ||
+            keyModalOpen ||
+            pasteModalOpen ||
+            topicNotesModalOpen ||
+            pdfPreviewOpen ||
+            versionModalKey ||
+            confirmRegenState
+          ) {
+            splitMenuOpen = false;
+            addSourceMenuOpen = false;
+            chatDrawerOpen = false;
+            scopeSheetOpen = false;
+            scanModalOpen = false;
+            treeModalOpen = false;
+            applyLedgerModalOpen = false;
+            queueModalOpen = false;
+            keyModalOpen = false;
+            confirmDeleteKey = false;
+            pasteModalOpen = false;
+            topicNotesModalOpen = false;
+            pdfPreviewOpen = false;
+            versionModalKey = null;
+            confirmRegenState = null;
+          } else if (isNotebookFullscreen) {
+            isNotebookFullscreen = false;
+            if (document.fullscreenElement) {
+              document.exitFullscreen?.().catch(() => {});
+            }
+          }
           renderNotebookDom(false);
         }
       }
@@ -1506,8 +1667,50 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
     });
   });
 
+  document.getElementById('nbToggleOutlineRailBtn')?.addEventListener('click', () => {
+    isOutlineCollapsed = !isOutlineCollapsed;
+    renderNotebookDom(false);
+  });
+
+  document.getElementById('nbToggleFullscreenBtn')?.addEventListener('click', () => {
+    isNotebookFullscreen = !isNotebookFullscreen;
+    if (isNotebookFullscreen) {
+      const shellEl = document.getElementById('nbRootShell');
+      if (shellEl && typeof shellEl.requestFullscreen === 'function' && !document.fullscreenElement) {
+        shellEl.requestFullscreen().catch(() => {});
+      }
+    } else if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+    renderNotebookDom(false);
+  });
+
+  document.getElementById('nbExportPdfBtn')?.addEventListener('click', () => {
+    pdfPreviewOpen = true;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbClosePdfPreviewBtn')?.addEventListener('click', () => {
+    pdfPreviewOpen = false;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbClosePdfPreviewFooterBtn')?.addEventListener('click', () => {
+    pdfPreviewOpen = false;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbPdfPreviewBackdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'nbPdfPreviewBackdrop') {
+      pdfPreviewOpen = false;
+      renderNotebookDom(false);
+    }
+  });
+  document.getElementById('nbPrintPdfBtn')?.addEventListener('click', () => {
+    const htmlDoc = buildActivePdfDocument(subject, allChunks);
+    printHtmlDocument(htmlDoc);
+  });
+
   document.getElementById('nbOpenKeyModalBtn')?.addEventListener('click', () => {
     keyModalOpen = true;
+    confirmDeleteKey = false;
     keyTestError = '';
     keyTestStatus = '';
     pingResultText = '';
@@ -2423,6 +2626,12 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
   // KEY VAULT & ROUTING MODAL
   document.getElementById('nbCloseKeyModalBtn')?.addEventListener('click', () => {
     keyModalOpen = false;
+    confirmDeleteKey = false;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbCloseKeyModalFooterBtn')?.addEventListener('click', () => {
+    keyModalOpen = false;
+    confirmDeleteKey = false;
     renderNotebookDom(false);
   });
   document.getElementById('nbUsePassphraseCb')?.addEventListener('change', (e) => {
@@ -2494,10 +2703,22 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
     updateModelSettings({ useSingleModel: e.target.checked });
     renderNotebookDom(false);
   });
-  document.getElementById('nbRemoveKeyBtn')?.addEventListener('click', () => {
+  document.getElementById('nbRequestDeleteKeyBtn')?.addEventListener('click', () => {
+    confirmDeleteKey = true;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbCancelDeleteKeyBtn')?.addEventListener('click', () => {
+    confirmDeleteKey = false;
+    renderNotebookDom(false);
+  });
+  document.getElementById('nbConfirmDeleteKeyBtn')?.addEventListener('click', () => {
     removeApiKey();
-    keyTestStatus = 'API key and live model cache cleared.';
+    confirmDeleteKey = false;
+    const inp = document.getElementById('nbApiKeyInput');
+    if (inp) inp.value = '';
+    keyTestStatus = 'Stored API key deleted from browser storage and memory.';
     keyTestError = '';
+    pingResultText = '';
     renderNotebookDom(false);
   });
   document.getElementById('nbSaveKeyBtn')?.addEventListener('click', async () => {

@@ -745,10 +745,11 @@ export function animateOcrScanSweep(containerEl) {
   }
 }
 
-export function animateMindMapBuild(svgContainer) {
-  if (!svgContainer) return;
-  const edges = svgContainer.querySelectorAll('.nb-mm-edge');
-  const nodes = svgContainer.querySelectorAll('.nb-mm-node');
+export function animateMindMapBuild(canvasEl) {
+  if (!canvasEl) return;
+  const viewportEl = canvasEl.closest('#nbMindMapViewport') || document.getElementById('nbMindMapViewport');
+  const edges = canvasEl.querySelectorAll('.nb-mm-edge');
+  const nodes = canvasEl.querySelectorAll('.nb-mm-node');
 
   if (!isMinimalFx()) {
     if (edges.length) {
@@ -767,24 +768,205 @@ export function animateMindMapBuild(svgContainer) {
     if (nodes.length) {
       animate(nodes, {
         opacity: [0, 1],
-        scale: [0.7, 1],
-        duration: 320,
-        delay: stagger(35, { from: 'center' }),
+        scale: [0.88, 1],
+        duration: 280,
+        delay: stagger(28, { from: 'center' }),
         ease: TACTILE_SPRING
       });
     }
   }
 
-  svgContainer.querySelectorAll('.nb-mm-html-node').forEach((nodeEl) => {
-    try {
-      const d = createDraggable(nodeEl, {
-        releaseEase: TACTILE_SPRING,
-        container: svgContainer
-      });
-      nbDraggables.push(d);
-    } catch {
-      // ignore
+  const canvasW = Number(canvasEl.getAttribute('data-mm-width')) || 960;
+  const canvasH = Number(canvasEl.getAttribute('data-mm-height')) || 420;
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+
+  const zoomReadout = document.getElementById('nbMmZoomReadout');
+  const applyTransform = () => {
+    canvasEl.style.transform = `translate(${Math.round(panX)}px, ${Math.round(panY)}px) scale(${scale})`;
+    if (zoomReadout) {
+      zoomReadout.textContent = `${Math.round(scale * 100)}%`;
     }
+  };
+
+  const fitToView = () => {
+    const vw = viewportEl?.clientWidth || canvasW;
+    const vh = viewportEl?.clientHeight || canvasH;
+    const fitScale = Math.max(0.45, Math.min(1, Math.min((vw - 24) / canvasW, (vh - 24) / canvasH)));
+    scale = Number(fitScale.toFixed(2));
+    panX = Math.round((vw - canvasW * scale) / 2);
+    panY = Math.round((vh - canvasH * scale) / 2);
+    applyTransform();
+  };
+
+  const setZoomAt = (nextScale) => {
+    const clamped = Math.max(0.45, Math.min(2.0, Number(nextScale.toFixed(2))));
+    const vw = viewportEl?.clientWidth || canvasW;
+    const vh = viewportEl?.clientHeight || canvasH;
+    const cx = vw / 2;
+    const cy = vh / 2;
+    const ratio = clamped / scale;
+    panX = cx - (cx - panX) * ratio;
+    panY = cy - (cy - panY) * ratio;
+    scale = clamped;
+    applyTransform();
+  };
+
+  const updateEdges = () => {
+    const nodePos = new Map();
+    canvasEl.querySelectorAll('.nb-mm-html-node').forEach((el) => {
+      const id = el.getAttribute('data-mm-id');
+      if (!id) return;
+      nodePos.set(id, {
+        left: parseFloat(el.style.left) || 0,
+        top: parseFloat(el.style.top) || 0,
+        w: el.offsetWidth || Number(el.getAttribute('data-mm-w')) || 160,
+        h: el.offsetHeight || Number(el.getAttribute('data-mm-h')) || 34
+      });
+    });
+
+    canvasEl.querySelectorAll('.nb-mm-edge').forEach((edgeEl) => {
+      const from = nodePos.get(edgeEl.getAttribute('data-mm-from'));
+      const to = nodePos.get(edgeEl.getAttribute('data-mm-to'));
+      if (!from || !to) return;
+      const x1 = from.left + from.w;
+      const y1 = from.top + from.h / 2;
+      const x2 = to.left;
+      const y2 = to.top + to.h / 2;
+      const midX = (x1 + x2) / 2;
+      edgeEl.setAttribute('d', `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+    });
+  };
+
+  fitToView();
+
+  const zoomInBtn = document.getElementById('nbMmZoomInBtn');
+  const zoomOutBtn = document.getElementById('nbMmZoomOutBtn');
+  const fitBtn = document.getElementById('nbMmFitBtn');
+  const resetBtn = document.getElementById('nbMmResetBtn');
+
+  const onZoomIn = () => setZoomAt(scale + 0.15);
+  const onZoomOut = () => setZoomAt(scale - 0.15);
+  const onFit = () => fitToView();
+  const onReset = () => {
+    canvasEl.querySelectorAll('.nb-mm-html-node').forEach((el) => {
+      const bl = el.getAttribute('data-mm-base-left');
+      const bt = el.getAttribute('data-mm-base-top');
+      if (bl !== null) el.style.left = `${bl}px`;
+      if (bt !== null) el.style.top = `${bt}px`;
+    });
+    updateEdges();
+    fitToView();
+  };
+
+  zoomInBtn?.addEventListener('click', onZoomIn);
+  zoomOutBtn?.addEventListener('click', onZoomOut);
+  fitBtn?.addEventListener('click', onFit);
+  resetBtn?.addEventListener('click', onReset);
+
+  // Canvas pan + node-only drag
+  let activeDrag = null; // { type: 'pan' | 'node', el?, startX, startY, origX, origY }
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    const nodeEl = e.target.closest?.('.nb-mm-html-node');
+    if (nodeEl && canvasEl.contains(nodeEl)) {
+      e.stopPropagation();
+      activeDrag = {
+        type: 'node',
+        el: nodeEl,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: parseFloat(nodeEl.style.left) || 0,
+        origY: parseFloat(nodeEl.style.top) || 0
+      };
+      nodeEl.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (viewportEl && viewportEl.contains(e.target)) {
+      activeDrag = {
+        type: 'pan',
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: panX,
+        origY: panY
+      };
+      viewportEl.classList.add('is-panning');
+      viewportEl.setPointerCapture?.(e.pointerId);
+    }
+  };
+
+  const onPointerMove = (e) => {
+    if (!activeDrag) return;
+    const dx = e.clientX - activeDrag.startX;
+    const dy = e.clientY - activeDrag.startY;
+    if (activeDrag.type === 'node' && activeDrag.el) {
+      activeDrag.el.style.left = `${Math.round(activeDrag.origX + dx / scale)}px`;
+      activeDrag.el.style.top = `${Math.round(activeDrag.origY + dy / scale)}px`;
+      updateEdges();
+    } else if (activeDrag.type === 'pan') {
+      panX = activeDrag.origX + dx;
+      panY = activeDrag.origY + dy;
+      applyTransform();
+    }
+  };
+
+  const onPointerUp = () => {
+    if (!activeDrag) return;
+    viewportEl?.classList.remove('is-panning');
+    activeDrag = null;
+  };
+
+  const onWheel = (e) => {
+    e.preventDefault();
+    setZoomAt(scale + (e.deltaY < 0 ? 0.1 : -0.1));
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      setZoomAt(scale + 0.15);
+    } else if (e.key === '-') {
+      e.preventDefault();
+      setZoomAt(scale - 0.15);
+    } else if (e.key === '0') {
+      e.preventDefault();
+      fitToView();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      panX += 24;
+      applyTransform();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      panX -= 24;
+      applyTransform();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      panY += 24;
+      applyTransform();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      panY -= 24;
+      applyTransform();
+    }
+  };
+
+  viewportEl?.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  viewportEl?.addEventListener('wheel', onWheel, { passive: false });
+  viewportEl?.addEventListener('keydown', onKeyDown);
+
+  nbTabCleanups.push(() => {
+    zoomInBtn?.removeEventListener('click', onZoomIn);
+    zoomOutBtn?.removeEventListener('click', onZoomOut);
+    fitBtn?.removeEventListener('click', onFit);
+    resetBtn?.removeEventListener('click', onReset);
+    viewportEl?.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    viewportEl?.removeEventListener('wheel', onWheel);
+    viewportEl?.removeEventListener('keydown', onKeyDown);
   });
 }
 
