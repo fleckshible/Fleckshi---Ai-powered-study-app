@@ -563,59 +563,166 @@ function renderTimelineSvgDom(val, allChunks) {
   );
 }
 
-function renderMindMapSvg(mindMap) {
-  if (!mindMap || !mindMap.rootLabel) return '';
+export function computeMindMapLayout(mindMap) {
+  if (!mindMap || !mindMap.rootLabel) {
+    return { width: 960, height: 420, nodes: [], edges: [] };
+  }
   const branches = Array.isArray(mindMap.branches) ? mindMap.branches.slice(0, 6) : [];
-  const w = 780;
-  const h = Math.max(440, branches.length * 94);
-  const rootX = 120;
-  const rootY = h / 2;
+  const w = 960;
+  const leafStep = 44;
+  const branchGap = 22;
 
-  const edges = [];
+  const branchSpans = branches.map((br) => {
+    const childCount = Array.isArray(br.children) ? Math.min(4, br.children.length) : 0;
+    return Math.max(72, Math.max(1, childCount) * leafStep + 14);
+  });
+  const totalSpan =
+    branchSpans.reduce((acc, s) => acc + s, 0) + Math.max(0, branches.length - 1) * branchGap;
+  const h = Math.max(420, totalSpan + 48);
+
+  const rootW = 172;
+  const rootH = 42;
+  const rootLeft = 40;
+  const rootTop = Math.round(h / 2 - rootH / 2);
+
+  const branchW = 188;
+  const branchH = 38;
+  const branchLeft = 330;
+
+  const childW = 248;
+  const childH = 32;
+  const childLeft = 640;
+
   const nodes = [
-    `<div class="nb-mm-html-node nb-mm-node" style="left:${rootX - 68}px; top:${rootY - 18}px; border-color:var(--mint-glow); font-weight:700;">${escapeHtml(
-      mindMap.rootLabel
-    )}</div>`
+    {
+      id: 'root',
+      kind: 'root',
+      label: mindMap.rootLabel,
+      left: rootLeft,
+      top: rootTop,
+      width: rootW,
+      height: rootH
+    }
   ];
+  const edges = [];
 
+  let cursorY = Math.round((h - totalSpan) / 2);
   branches.forEach((br, idx) => {
-    const by = ((idx + 0.5) / Math.max(1, branches.length)) * h;
-    const bx = 375;
-    edges.push(
-      `<path class="nb-mm-edge" d="M ${rootX} ${rootY} C ${(rootX + bx) / 2} ${rootY}, ${
-        (rootX + bx) / 2
-      } ${by}, ${bx} ${by}" fill="none" stroke="#38BDF8" stroke-width="1.8"/>`
-    );
-    nodes.push(
-      `<div class="nb-mm-html-node nb-mm-node" style="left:${bx - 68}px; top:${by - 15}px; border-color:var(--blue-cyan);">${escapeHtml(
-        br.label
-      )}</div>`
-    );
+    const span = branchSpans[idx];
+    const centerY = cursorY + span / 2;
+    const brTop = Math.round(centerY - branchH / 2);
+    const brId = `br_${idx}`;
+
+    nodes.push({
+      id: brId,
+      kind: 'branch',
+      label: br.label || `Branch ${idx + 1}`,
+      left: branchLeft,
+      top: brTop,
+      width: branchW,
+      height: branchH
+    });
+    edges.push({
+      from: 'root',
+      to: brId,
+      stroke: '#38BDF8',
+      strokeWidth: 1.8,
+      opacity: 0.95
+    });
 
     const children = Array.isArray(br.children) ? br.children.slice(0, 4) : [];
+    const childrenSpan = Math.max(0, children.length - 1) * leafStep;
     children.forEach((child, cIdx) => {
-      const cy = by + (cIdx - (children.length - 1) / 2) * 26;
-      const cx = 635;
-      edges.push(
-        `<path class="nb-mm-edge" d="M ${bx} ${by} C ${(bx + cx) / 2} ${by}, ${
-          (bx + cx) / 2
-        } ${cy}, ${cx} ${cy}" fill="none" stroke="#A7F3D0" stroke-width="1.2" opacity="0.8"/>`
-      );
-      nodes.push(
-        `<div class="nb-mm-html-node nb-mm-node" style="left:${cx - 68}px; top:${cy - 12}px; font-size:10px;">${escapeHtml(
-          child
-        )}</div>`
-      );
+      const cy = centerY - childrenSpan / 2 + cIdx * leafStep;
+      const cTop = Math.round(cy - childH / 2);
+      const cId = `ch_${idx}_${cIdx}`;
+      nodes.push({
+        id: cId,
+        kind: 'child',
+        label: child,
+        left: childLeft,
+        top: cTop,
+        width: childW,
+        height: childH
+      });
+      edges.push({
+        from: brId,
+        to: cId,
+        stroke: '#34D399',
+        strokeWidth: 1.35,
+        opacity: 0.85
+      });
     });
+
+    cursorY += span + branchGap;
   });
 
+  return { width: w, height: h, nodes, edges };
+}
+
+function buildMindMapCurvePath(fromNode, toNode) {
+  const x1 = fromNode.left + fromNode.width;
+  const y1 = fromNode.top + fromNode.height / 2;
+  const x2 = toNode.left;
+  const y2 = toNode.top + toNode.height / 2;
+  const midX = (x1 + x2) / 2;
+  return `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+}
+
+function renderMindMapSvg(mindMap) {
+  if (!mindMap || !mindMap.rootLabel) return '';
+  const layout = computeMindMapLayout(mindMap);
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+
+  const edgesHtml = layout.edges
+    .map((e) => {
+      const fromNode = byId.get(e.from);
+      const toNode = byId.get(e.to);
+      if (!fromNode || !toNode) return '';
+      const d = buildMindMapCurvePath(fromNode, toNode);
+      return `<path class="nb-mm-edge" data-mm-from="${escapeHtml(e.from)}" data-mm-to="${escapeHtml(
+        e.to
+      )}" d="${d}" fill="none" stroke="${e.stroke}" stroke-width="${e.strokeWidth}" opacity="${e.opacity}"/>`;
+    })
+    .join('');
+
+  const nodesHtml = layout.nodes
+    .map((n) => {
+      const borderStyle =
+        n.kind === 'root'
+          ? 'border-color:var(--mint-glow); font-weight:700;'
+          : n.kind === 'branch'
+            ? 'border-color:var(--blue-cyan); font-weight:600;'
+            : 'font-size:11px;';
+      return (
+        `<div class="nb-mm-html-node nb-mm-node" data-mm-id="${escapeHtml(
+          n.id
+        )}" data-mm-base-left="${n.left}" data-mm-base-top="${n.top}" data-mm-w="${
+          n.width
+        }" data-mm-h="${n.height}" style="left:${n.left}px; top:${n.top}px; width:${
+          n.width
+        }px; min-height:${n.height}px; ${borderStyle}">${escapeHtml(n.label)}</div>`
+      );
+    })
+    .join('');
+
   return (
-    `<div class="nb-mindmap-wrap" id="nbMindMapCanvas">` +
-    `<div style="position:relative; width:${w}px; height:${h}px; margin:0 auto;">` +
-    `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute; inset:0; pointer-events:none;">${edges.join(
-      ''
-    )}</svg>` +
-    nodes.join('') +
+    `<div class="nb-mindmap-viewport-wrap">` +
+    `<div class="nb-mindmap-toolbar">` +
+    `<span class="u-text-sm">Drag canvas to pan · Drag nodes to arrange · Wheel to zoom</span>` +
+    `<div class="u-row-wrap">` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbMmZoomOutBtn" aria-label="Zoom out">-</button>` +
+    `<span class="mono u-text-sm" id="nbMmZoomReadout">100%</span>` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbMmZoomInBtn" aria-label="Zoom in">+</button>` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbMmFitBtn">Fit to View</button>` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbMmResetBtn">Reset</button>` +
+    `</div>` +
+    `</div>` +
+    `<div class="nb-mindmap-viewport" id="nbMindMapViewport" tabindex="0" aria-label="Interactive Mind Map">` +
+    `<div class="nb-mindmap-canvas" id="nbMindMapCanvas" data-mm-width="${layout.width}" data-mm-height="${layout.height}" style="width:${layout.width}px; height:${layout.height}px;">` +
+    `<svg class="nb-mindmap-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" style="position:absolute; inset:0; pointer-events:none;">${edgesHtml}</svg>` +
+    nodesHtml +
+    `</div>` +
     `</div>` +
     `</div>`
   );
@@ -1000,7 +1107,8 @@ export function renderScopedGeneratorWorkspace({
   fcSession,
   quizSession,
   splitMenuOpen = false,
-  tabModelOverride = null
+  tabModelOverride = null,
+  outlineCollapsed = false
 }) {
   const scope = resolveActiveScopeDetails(notebook, subject, activeView);
   const taskKey = getTaskKeyForTool(activeView);
@@ -1019,7 +1127,7 @@ export function renderScopedGeneratorWorkspace({
   const autoGenChecked =
     scope.scopeType === 'subject'
       ? Boolean(notebook.autoGenerateOnTabOpen?.wholeSubject)
-      : notebook.autoGenerateOnTabOpen?.scoped !== false;
+      : Boolean(notebook.autoGenerateOnTabOpen?.scoped);
 
   const viewChips = (parentTab === 'practice' ? PRACTICE_VIEWS : LEARN_VIEWS)
     .map((v) => {
@@ -1064,6 +1172,10 @@ export function renderScopedGeneratorWorkspace({
 
   const showGroundingAndGen = !isPersonalNotes && !isQuizHistory;
 
+  const canExportPdf =
+    (parentTab === 'learn' && (Boolean(artifact) || isPersonalNotes)) ||
+    (parentTab === 'plan' && Boolean(artifact));
+
   const workspaceTopBar =
     `<div class="nb-workspace-topbar">` +
     `<div class="nb-ws-title-group">` +
@@ -1076,6 +1188,9 @@ export function renderScopedGeneratorWorkspace({
     (showGroundingAndGen ? renderGroundingToggle(notebook.groundingMode) : '') +
     `</div>` +
     `<div class="nb-ws-controls">` +
+    (canExportPdf
+      ? `<button type="button" class="btn-secondary btn-sm" id="nbExportPdfBtn" title="Preview &amp; export clean PDF">Export PDF</button>`
+      : '') +
     (showGroundingAndGen && !isQuizBuild
       ? renderSplitGenerateButton({
           artifact,
@@ -1206,8 +1321,8 @@ export function renderScopedGeneratorWorkspace({
   }
 
   return (
-    `<div class="nb-workspace-layout">` +
-    renderScopeOutlineRail({ notebook, subject, activeTool: activeView, scope }) +
+    `<div class="nb-workspace-layout${outlineCollapsed ? ' outline-collapsed' : ''}">` +
+    (outlineCollapsed ? '' : renderScopeOutlineRail({ notebook, subject, activeTool: activeView, scope })) +
     `<section class="nb-workspace-card nb-spotlight-zone nb-tilt-card">` +
     viewChipStrip +
     workspaceTopBar +
@@ -1250,6 +1365,9 @@ export function renderPlanWorkspace({
     renderGroundingToggle(notebook.groundingMode) +
     `</div>` +
     `<div class="nb-ws-controls">` +
+    (artifact
+      ? `<button type="button" class="btn-secondary btn-sm" id="nbExportPdfBtn" title="Preview &amp; export clean PDF">Export PDF</button>`
+      : '') +
     renderSplitGenerateButton({
       artifact,
       artifactKey,

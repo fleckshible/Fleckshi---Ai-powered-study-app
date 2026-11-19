@@ -31,7 +31,7 @@ export const CURATED_MODELS = [
     supportsImages: true,
     inputTokenLimit: 1048576,
     outputTokenLimit: 65536,
-    tierHint: 'Free tier',
+    tierHint: 'Paid',
     thinkingMode: 'level',
     allowedThinkingLevels: ['default', 'low', 'medium', 'high', 'xhigh'],
     curated: true
@@ -206,17 +206,17 @@ const PRESET_CANDIDATES = {
     'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
-    'gemini-2.5-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
-    'gemini-2.5-flash-lite',
-    'gemini-4-hydrogen'
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite'
   ],
   balanced: [
-    'gemini-4-hydrogen',
     'gemini-3.8-flash',
+    'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
+    'gemini-4-hydrogen',
     'gemini-2.5-flash',
     'gemini-4-argon'
   ],
@@ -251,7 +251,7 @@ function inferSpeed(id) {
 function inferTier(id) {
   const lower = id.toLowerCase();
   if (lower.includes('argon') || lower.includes('carbon') || lower.includes('pro')) return 'Paid';
-  return 'Free tier';
+  return 'Unknown';
 }
 
 function inferThinkingMeta(id, rawThinkingFlag) {
@@ -382,6 +382,24 @@ export function filterAndNormalizeLiveModels(rawApiModels = []) {
   }
 
   return result;
+}
+
+export function recommendFreeDefaultModel(liveModels = null) {
+  const freePreferred = [
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite'
+  ];
+  if (Array.isArray(liveModels) && liveModels.length > 0) {
+    const liveIds = new Set(liveModels.map((m) => m.id));
+    for (const id of freePreferred) {
+      if (liveIds.has(id)) return id;
+    }
+  }
+  return 'gemini-3.8-flash';
 }
 
 /**

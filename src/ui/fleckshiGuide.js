@@ -405,7 +405,7 @@ function renderPortraitHtml(size = 'md') {
 
   // Intentional guide compass/spark emblem fallback (when image assets are missing)
   return (
-    `<div class="fleckshi-portrait${sizeCls}" title="Fleckshi assets missing — place sprite sheet at public/assets/fleckshi/fleckshi-emotes-source.png">` +
+    `<div class="fleckshi-portrait${sizeCls}" title="Fleckshi assets missing — expected PNGs in public/assets/fleckshi-emotes-clean/">` +
     `<div class="fleckshi-portrait-fallback" role="img" aria-label="Fleckshi">` +
     `<svg width="${iconPx}" height="${iconPx}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
     `<circle cx="12" cy="12" r="9"/>` +

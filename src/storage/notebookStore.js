@@ -256,7 +256,7 @@ export function createEmptyNotebook(subjectId) {
     },
     groundingMode: 'sources', // 'sources' | 'syllabus'
     autoGenerateOnTabOpen: {
-      scoped: true,
+      scoped: false,
       wholeSubject: false
     },
     syllabusBrain: null,

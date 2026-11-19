@@ -22,11 +22,15 @@ import {
 import {
   filterAndNormalizeLiveModels,
   buildModelCatalogView,
+  recommendFreeDefaultModel,
   resolvePresetModel,
   resolveModelForTask,
   buildThinkingConfigForModel,
   buildFallbackQueue
 } from '../src/features/modelCatalog.js';
+import { buildPrintableHtml } from '../src/features/pdfExporter.js';
+import { computeMindMapLayout } from '../src/ui/notebook/tabWorkspaces.js';
+import { createEmptyNotebook } from '../src/storage/notebookStore.js';
 import { executeWithModelFallback } from '../src/features/geminiClient.js';
 import {
   recordModelUsage,
@@ -546,7 +550,7 @@ test('preset resolution, per-task OCR vision routing, and fallback queue honor k
       vaultConfigOverride: {
         useSingleModel: false,
         autoFallback: true,
-        taskRouting: { chat: 'balanced' },
+        taskRouting: { chat: 'deep' },
         fallbackOrder: ['fast']
       },
       liveModelsOverride: filterAndNormalizeLiveModels([
@@ -1062,4 +1066,88 @@ test('Phase D: keyed Notebook DOM updates, ARIA tabs/live regions, zero wheel-hi
   assert.equal(nav.tabId, 'learn');
   assert.equal(nav.learnView, 'notes');
   assert.equal(nav.notesMode, 'mine');
+});
+
+test('Free-tier default, Unknown non-curated tier, no auto-regen on tab open, MindMap non-overlap, PDF escaping, and Ctrl+K removal', () => {
+  // 1. Free-tier default picks gemini-3.8-flash (not gemini-4-hydrogen)
+  const rec = recommendFreeDefaultModel([
+    { id: 'gemini-4-hydrogen' },
+    { id: 'gemini-3.8-flash' }
+  ]);
+  assert.equal(rec, 'gemini-3.8-flash');
+
+  // Unverified custom model gets tierHint === 'Unknown'
+  const catalog = buildModelCatalogView([
+    { id: 'gemini-custom-experimental-99', displayName: 'Exp 99' }
+  ]);
+  const customRow = catalog.groups.Other.find((m) => m.id === 'gemini-custom-experimental-99');
+  assert.ok(customRow);
+  assert.equal(customRow.tierHint, 'Unknown');
+
+  // 2. New notebook disables auto-regeneration on tab open by default
+  const emptyNb = createEmptyNotebook('subj-x');
+  assert.equal(emptyNb.autoGenerateOnTabOpen.scoped, false);
+  assert.equal(emptyNb.autoGenerateOnTabOpen.wholeSubject, false);
+
+  // 3. MindMap layout nodes stay within bounds and never overlap each other
+  const layout = computeMindMapLayout({
+    rootLabel: 'Thermodynamics',
+    branches: [
+      { label: 'Laws', children: ['Zeroth Law', 'First Law', 'Second Law', 'Third Law'] },
+      { label: 'Cycles', children: ['Carnot', 'Otto', 'Diesel'] },
+      { label: 'Entropy', children: ['Clausius', 'Boltzmann'] }
+    ]
+  });
+  assert.ok(layout.nodes.length >= 13);
+  for (let i = 0; i < layout.nodes.length; i++) {
+    const a = layout.nodes[i];
+    assert.ok(a.left >= 0 && a.left + a.width <= layout.width);
+    assert.ok(a.top >= 0 && a.top + a.height <= layout.height);
+    for (let j = i + 1; j < layout.nodes.length; j++) {
+      const b = layout.nodes[j];
+      const overlaps =
+        a.left < b.left + b.width &&
+        a.left + a.width > b.left &&
+        a.top < b.top + b.height &&
+        a.top + a.height > b.top;
+      assert.equal(overlaps, false, `MindMap nodes ${a.id} and ${b.id} must not overlap`);
+    }
+  }
+
+  // 4. PDF exporter escapes metadata and includes @page page numbers
+  const pdfHtml = buildPrintableHtml({
+    subjectName: 'Physics <script>alert(1)</script>',
+    scopeLabel: 'Optics & Waves',
+    toolLabel: 'Notes',
+    bodyHtml: '<p>Wave equation</p>'
+  });
+  assert.ok(!pdfHtml.includes('<script>alert(1)</script>'));
+  assert.ok(pdfHtml.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  assert.ok(pdfHtml.includes('counter(page)'));
+
+  // 5. Ctrl+K removed & Fleckshi has no mood-tag label
+  const mainSrc = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const sidebarSrc = fs.readFileSync(new URL('../src/ui/sidebar.js', import.meta.url), 'utf8');
+  const fleckshiSrc = fs.readFileSync(new URL('../src/ui/fleckshiGuide.js', import.meta.url), 'utf8');
+  assert.ok(!mainSrc.includes('commandBar'));
+  assert.ok(!sidebarSrc.includes('Ctrl+K'));
+  assert.ok(!fleckshiSrc.includes('fleckshi-mood-tag'));
+});
+
+test('Fleckshi maps all 32 expressions to existing PNGs in public/assets/fleckshi-emotes-clean/', async () => {
+  const { FLECKSHI_EMOTES, FLECKSHI_ASSET_BASE } = await import('../src/features/fleckshiEmotes.js');
+  assert.equal(FLECKSHI_ASSET_BASE, './assets/fleckshi-emotes-clean');
+  const expected = [
+    'idle', 'happy', 'excited', 'wink', 'cheerful', 'curious', 'thinking', 'confused',
+    'surprised', 'shocked', 'blushing', 'embarrassed', 'pouting', 'angry', 'annoyed', 'tired',
+    'sleepy', 'sleeping', 'relaxed', 'relieved', 'pleased', 'proud', 'eating', 'drinking',
+    'focused', 'working', 'helping', 'success', 'error', 'loading', 'info', 'waiting'
+  ];
+  assert.deepEqual(Object.keys(FLECKSHI_EMOTES).sort(), [...expected].sort());
+  for (const key of expected) {
+    const spec = FLECKSHI_EMOTES[key];
+    assert.equal(spec.src, `./assets/fleckshi-emotes-clean/${key}.png`);
+    const fileUrl = new URL(`../public/assets/fleckshi-emotes-clean/${key}.png`, import.meta.url);
+    assert.ok(fs.existsSync(fileUrl), `Missing clean emote file for ${key}`);
+  }
 });

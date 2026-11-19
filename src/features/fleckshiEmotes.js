@@ -1,5 +1,5 @@
-export const FLECKSHI_ASSET_BASE = './assets/fleckshi';
-export const FLECKSHI_SPRITE_URL = './assets/fleckshi/fleckshi-emotes-source.png';
+export const FLECKSHI_ASSET_BASE = './assets/fleckshi-emotes-clean';
+export const FLECKSHI_SPRITE_URL = './assets/fleckshi-emotes-clean/fleckshi-emotes-atlas.png';
 
 export const FLECKSHI_GRID = {
   cols: 8,
@@ -51,7 +51,7 @@ export function getEmoteImageUrl(name) {
 }
 
 /**
- * Probe once per session whether `./assets/fleckshi/idle.png`
+ * Probe once per session whether `./assets/fleckshi-emotes-clean/idle.png`
  * exists and decodes cleanly in the browser. Never polls.
  * @returns {Promise<{ available: boolean, width: number, height: number }>}
  */

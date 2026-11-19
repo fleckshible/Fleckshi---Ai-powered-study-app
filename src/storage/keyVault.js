@@ -6,7 +6,7 @@ import {
 
 export const KEY_VAULT_STORAGE_KEY = 'revision-ledger-key-vault-v1';
 export const LIVE_MODELS_SESSION_KEY = 'revision-ledger-live-models-v1';
-export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 let sessionUnlockedKey = null;
 let memoryVaultFallback = null;

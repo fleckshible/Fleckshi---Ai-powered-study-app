@@ -25,7 +25,7 @@ export function renderGroupedModelOptions(
     html +=
       `<optgroup label="Presets (Auto-best for key)">` +
       `<option value="fast"${selectedValue === 'fast' ? ' selected' : ''}>Preset: Fast (Flash)</option>` +
-      `<option value="balanced"${selectedValue === 'balanced' ? ' selected' : ''}>Preset: Balanced (Hydrogen)</option>` +
+      `<option value="balanced"${selectedValue === 'balanced' ? ' selected' : ''}>Preset: Balanced (3.8 Flash)</option>` +
       `<option value="deep"${selectedValue === 'deep' ? ' selected' : ''}>Preset: Deep (Argon / Carbon)</option>` +
       `</optgroup>`;
   }
@@ -175,13 +175,21 @@ export function renderKeyAndRoutingModal({
   keyTestStatus,
   keyTestError,
   pingResultText,
-  defaultGroundingMode = 'sources'
+  defaultGroundingMode = 'sources',
+  confirmDeleteKey = false
 }) {
   if (!open) return '';
 
-  const selectedModel = vaultConfig.customModel || vaultConfig.model || 'gemini-4-hydrogen';
+  const selectedModel = vaultConfig.customModel || vaultConfig.model || 'gemini-3.8-flash';
+  const selectedMeta = getModelMeta(selectedModel, liveModels);
   const usageMap = getTodayModelUsage();
   const usageRows = Object.entries(usageMap);
+
+  const keyStateLabel = vaultConfig.encrypted && !vaultConfig.unlocked
+    ? 'Encrypted (Locked)'
+    : vaultConfig.hasStoredKey
+      ? 'Stored in browser'
+      : 'No key stored';
 
   const taskPickersHtml = Object.entries(TASK_ROUTING_LABELS)
     .map(([taskKey, label]) => {
@@ -206,15 +214,17 @@ export function renderKeyAndRoutingModal({
     `<div class="modal-backdrop" id="nbKeyModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="nbKeyModalTitle">` +
     `<div class="modal-card nb-modal-lg u-stack-md">` +
     `<div class="modal-header">` +
-    `<h2 class="serif" id="nbKeyModalTitle">Gemini Key &amp; Model Routing<span class="title-dot"></span></h2>` +
-    `<button type="button" class="topic-del" id="nbCloseKeyModalBtn" aria-label="Close modal">&times;</button>` +
+    `<h2 class="serif" id="nbKeyModalTitle">AI Settings<span class="title-dot"></span></h2>` +
+    `<button type="button" class="topic-del" id="nbCloseKeyModalBtn" aria-label="Close AI Settings">&times;</button>` +
     `</div>` +
-    `<p class="u-text-muted" style="margin:0;">` +
-    `<strong>API Key:</strong> Get one from <span class="mono">aistudio.google.com/apikey</span>. Stored only in this browser (never logged or exported).` +
-    `</p>` +
-    `<p class="nb-hint-box">` +
-    `Default: Remember in this browser. Note: an unlocked key is readable by any script on this origin; enable Passphrase Lock below to encrypt at rest (PBKDF2 + AES-GCM).` +
-    `</p>` +
+
+    /* Card 1: API Key */
+    `<section class="nb-settings-card u-stack-sm" aria-labelledby="nbSettingsKeyHeading">` +
+    `<div class="u-row-between">` +
+    `<strong id="nbSettingsKeyHeading" style="font-size:14px;">1. API Key</strong>` +
+    `<span class="nb-badge-mini">${escapeHtml(keyStateLabel)}</span>` +
+    `</div>` +
+    `<p class="u-text-sm" style="margin:0;">Get a key from <span class="mono">aistudio.google.com/apikey</span>. Stored locally in your browser (never logged or exported).</p>` +
     (vaultConfig.encrypted && !vaultConfig.unlocked
       ? `<div class="u-stack-sm nb-coverage-card">` +
         `<label for="nbUnlockPassInput" class="ui-label">Unlock encrypted key</label>` +
@@ -225,28 +235,48 @@ export function renderKeyAndRoutingModal({
       : '') +
     `<div class="u-row-wrap" style="align-items:flex-end;">` +
     `<div class="ui-field u-flex-1">` +
-    `<label for="nbApiKeyInput" class="ui-label">Gemini API Key (leave blank to keep stored key)</label>` +
+    `<label for="nbApiKeyInput" class="ui-label">Gemini API Key ${vaultConfig.hasStoredKey ? '(leave blank to keep stored key)' : ''}</label>` +
     `<input type="password" id="nbApiKeyInput" class="ui-input" placeholder="${
       vaultConfig.hasStoredKey ? '•••••••••••• (Key stored)' : 'AIza...'
     }">` +
     `</div>` +
-    `<button type="button" class="btn-secondary btn-md" id="nbTestKeyBtn">Test Key &amp; Refresh Models</button>` +
+    `<button type="button" class="btn-secondary btn-md" id="nbTestKeyBtn">Test &amp; Refresh</button>` +
     `</div>` +
+    `<div class="u-row-between u-row-wrap">` +
     `<label class="u-check-label">` +
     `<input type="checkbox" id="nbUsePassphraseCb" ${vaultConfig.encrypted ? 'checked' : ''}>` +
-    `<span>Optional: Encrypt key with passphrase</span>` +
+    `<span>Encrypt key with passphrase (PBKDF2 + AES-GCM)</span>` +
     `</label>` +
+    (vaultConfig.hasStoredKey && !confirmDeleteKey
+      ? `<button type="button" class="btn-secondary btn-sm u-text-danger" id="nbRequestDeleteKeyBtn">Delete stored API key</button>`
+      : '') +
+    `</div>` +
     `<div id="nbPassphraseWrap" style="${vaultConfig.encrypted ? '' : 'display:none;'}">` +
     `<input type="password" id="nbKeyPassphraseInput" class="ui-input" placeholder="Passphrase (min 4 chars)...">` +
     `</div>` +
+    (confirmDeleteKey
+      ? `<div class="nb-danger-confirm u-stack-xs" role="alert">` +
+        `<div class="u-text-sm"><strong>Delete stored API key?</strong> This clears the key from browser <span class="mono">localStorage</span> and active session memory. To revoke the key completely, also delete it in Google AI Studio.</div>` +
+        `<div class="u-row-end">` +
+        `<button type="button" class="btn-secondary btn-sm" id="nbCancelDeleteKeyBtn">Cancel</button>` +
+        `<button type="button" class="btn-primary btn-sm nb-btn-danger" id="nbConfirmDeleteKeyBtn">Confirm Delete Key</button>` +
+        `</div>` +
+        `</div>`
+      : '') +
     (keyTestStatus ? `<div class="u-text-sm u-text-mint">${escapeHtml(keyTestStatus)}</div>` : '') +
     (keyTestError ? `<div class="u-text-danger">${escapeHtml(keyTestError)}</div>` : '') +
-    `<div class="u-divider-top u-stack-sm">` +
-    `<div class="u-row-between">` +
-    `<strong style="font-size:13.5px;">Available Models &amp; Thinking</strong>` +
+    `</section>` +
+
+    /* Card 2: Model */
+    `<section class="nb-settings-card u-stack-sm" aria-labelledby="nbSettingsModelHeading">` +
+    `<div class="u-row-between u-row-wrap">` +
+    `<div>` +
+    `<strong id="nbSettingsModelHeading" style="font-size:14px;">2. Model</strong>` +
+    `<div class="u-text-sm">Active: <span class="mono">${escapeHtml(selectedModel)}</span> · <span class="nb-badge-mini">${escapeHtml(selectedMeta.tierHint)}</span></div>` +
+    `</div>` +
     `<div class="u-row-wrap">` +
     [
-      { id: 'fast', label: 'Fast' },
+      { id: 'fast', label: 'Fast (Free)' },
       { id: 'balanced', label: 'Balanced' },
       { id: 'deep', label: 'Deep' }
     ]
@@ -255,7 +285,8 @@ export function renderKeyAndRoutingModal({
           `<button type="button" class="btn-secondary btn-sm" data-nb-modal-preset="${p.id}">${p.label}</button>`
       )
       .join('') +
-    `</div></div>` +
+    `</div>` +
+    `</div>` +
     `<input type="search" id="nbModalModelSearch" class="ui-input" value="${escapeHtml(
       modelSearchQuery
     )}" placeholder="Search live &amp; curated models...">` +
@@ -264,25 +295,30 @@ export function renderKeyAndRoutingModal({
       liveModels,
       modelSearchQuery
     )}</div>` +
+    `<div class="u-row-between u-row-wrap">` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbPingSelectedModelBtn">Test Model (${escapeHtml(
+      selectedModel
+    )})</button>` +
+    (pingResultText ? `<span class="mono u-text-sm u-text-mint">${escapeHtml(pingResultText)}</span>` : '') +
+    `</div>` +
+    `</section>` +
+
+    /* Card 3: Advanced Options */
+    `<details class="nb-settings-card nb-settings-details">` +
+    `<summary class="nb-settings-summary"><strong>3. Advanced Options</strong><span class="u-text-sm">Routing, Thinking, Grounding, FX &amp; Usage</span></summary>` +
+    `<div class="u-stack-sm" style="margin-top:12px;">` +
     `<div class="u-grid-2">` +
     `<div class="ui-field">` +
     `<label for="nbCustomModelInput" class="ui-label">Custom Model ID (optional override)</label>` +
     `<input type="text" id="nbCustomModelInput" class="ui-input" value="${escapeHtml(
       vaultConfig.customModel || ''
-    )}" placeholder="e.g. gemini-4-hydrogen">` +
+    )}" placeholder="e.g. gemini-3.8-flash">` +
     `</div>` +
     renderThinkingControl(selectedModel, vaultConfig, liveModels, 'nbModalThinkingSelect') +
     `</div>` +
-    `<div class="u-row-wrap">` +
-    `<button type="button" class="btn-secondary btn-sm" id="nbPingSelectedModelBtn">Test This Model (${escapeHtml(
-      selectedModel
-    )})</button>` +
-    (pingResultText ? `<span class="mono u-text-sm u-text-mint">${escapeHtml(pingResultText)}</span>` : '') +
-    `</div>` +
-    `</div>` +
     `<div class="u-divider-top u-stack-sm">` +
     `<div class="u-row-between">` +
-    `<strong style="font-size:13.5px;">Per-Task Routing &amp; Automatic Fallback</strong>` +
+    `<strong style="font-size:13px;">Per-Task Routing &amp; Fallback</strong>` +
     `<label class="u-check-label">` +
     `<input type="checkbox" id="nbUseSingleModelCb" ${vaultConfig.useSingleModel ? 'checked' : ''}>` +
     `<span>Use one model for everything</span>` +
@@ -291,7 +327,7 @@ export function renderKeyAndRoutingModal({
     taskPickersHtml +
     `<div class="u-grid-2" style="align-items:end;">` +
     `<div class="ui-field">` +
-    `<label for="nbFallbackOrderInput" class="ui-label">Fallback order (comma-separated presets or model IDs)</label>` +
+    `<label for="nbFallbackOrderInput" class="ui-label">Fallback order (comma-separated presets or IDs)</label>` +
     `<input type="text" id="nbFallbackOrderInput" class="ui-input" value="${escapeHtml(
       (vaultConfig.fallbackOrder || []).join(', ')
     )}">` +
@@ -302,19 +338,8 @@ export function renderKeyAndRoutingModal({
     `</label>` +
     `</div>` +
     `</div>` +
-    `<div class="u-divider-top u-stack-sm">` +
-    `<div class="u-text-sm">Today's Requests Sent (local browser estimate, not Google's real quota):</div>` +
-    (usageRows.length
-      ? `<div class="u-row-wrap">${usageRows
-          .map(
-            ([m, cnt]) =>
-              `<span class="nb-badge-mini">${escapeHtml(m)}: ${cnt}</span>`
-          )
-          .join('')}</div>`
-      : `<div class="u-text-sm">No requests sent today yet.</div>`) +
-    `</div>` +
-    `<div class="u-divider-top u-row-between">` +
-    `<span class="ui-label">Default Notebook Grounding:</span>` +
+    `<div class="u-divider-top u-row-between u-row-wrap">` +
+    `<span class="ui-label">Default Grounding:</span>` +
     `<div class="nb-seg-control" role="group" aria-label="Default grounding mode">` +
     `<button type="button" class="nb-seg-btn${
       defaultGroundingMode === 'sources' ? ' active' : ''
@@ -324,8 +349,8 @@ export function renderKeyAndRoutingModal({
     }" data-nb-grounding="syllabus">Syllabus-guided</button>` +
     `</div>` +
     `</div>` +
-    `<div class="u-divider-top u-row-between">` +
-    `<span class="ui-label">Visual Effects Intensity (FX):</span>` +
+    `<div class="u-divider-top u-row-between u-row-wrap">` +
+    `<span class="ui-label">Visual Effects (FX):</span>` +
     `<div class="nb-seg-control" role="group" aria-label="Visual effects level">` +
     FX_LEVELS.map(
       (lvl) =>
@@ -335,11 +360,20 @@ export function renderKeyAndRoutingModal({
     ).join('') +
     `</div>` +
     `</div>` +
-    `<div class="modal-actions u-row-between">` +
-    (vaultConfig.hasStoredKey
-      ? `<button type="button" class="btn-secondary btn-md u-text-danger" id="nbRemoveKeyBtn">Remove Key</button>`
-      : `<span></span>`) +
-    `<button type="button" class="btn-primary btn-md" id="nbSaveKeyBtn">Save Key &amp; Routing</button>` +
+    `<div class="u-divider-top u-stack-xs">` +
+    `<div class="u-text-sm">Today's Requests Sent (local estimate):</div>` +
+    (usageRows.length
+      ? `<div class="u-row-wrap">${usageRows
+          .map(([m, cnt]) => `<span class="nb-badge-mini">${escapeHtml(m)}: ${cnt}</span>`)
+          .join('')}</div>`
+      : `<div class="u-text-sm">No requests sent today yet.</div>`) +
+    `</div>` +
+    `</div>` +
+    `</details>` +
+
+    `<div class="modal-actions u-row-end">` +
+    `<button type="button" class="btn-secondary btn-md" id="nbCloseKeyModalFooterBtn">Close</button>` +
+    `<button type="button" class="btn-primary btn-md" id="nbSaveKeyBtn">Save Settings</button>` +
     `</div>` +
     `</div>` +
     `</div>`
