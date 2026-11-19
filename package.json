@@ -1,6 +1,7 @@
 {
-  "name": "revision-ledger",
-  "version": "2.0.0",
+  "name": "fleckshi",
+  "version": "2.2.0",
+  "description": "Fleckshi — Your study space, guided.",
   "private": true,
   "type": "module",
   "scripts": {

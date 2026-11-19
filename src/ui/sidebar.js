@@ -65,10 +65,10 @@ export function renderSidebar(state, currentTheme = 'dark', { collapsed = false 
     .join('');
 
   return (
-    `<aside class="cover" aria-label="Revision Ledger Navigation">` +
+    `<aside class="cover" aria-label="Fleckshi Navigation">` +
     `<div class="sidebar-top-zone">` +
     `<div class="cover-top">` +
-    `<h1 class="cover-title serif">Revision Ledger<span class="title-dot"></span></h1>` +
+    `<h1 class="cover-title serif" title="Fleckshi — Your study space, guided.">Fleckshi<span class="title-dot"></span></h1>` +
     `<div class="cover-top-actions">` +
     `<button type="button" class="sidebar-collapse-btn" id="toggleSidebarCollapseBtn" aria-expanded="${!collapsed}" aria-label="${
       collapsed ? 'Expand sidebar' : 'Collapse sidebar to icons'

@@ -194,6 +194,8 @@ test('backup parser validates and migrates exported JSON', () => {
   const imported = parseImportedBackup(json);
   assert.equal(imported.schemaVersion, 3);
   assert.equal(imported.subjects[0].name, 'History');
+  const exported = JSON.parse(exportStateJson(imported));
+  assert.equal(exported.app, 'Fleckshi');
 });
 
 test('pomodoro defaults to 25/5 and migrates stuck v2 120m once while preserving intentional v3 120m', () => {
@@ -1150,4 +1152,24 @@ test('Fleckshi maps all 32 expressions to existing PNGs in public/assets/flecksh
     const fileUrl = new URL(`../public/assets/fleckshi-emotes-clean/${key}.png`, import.meta.url);
     assert.ok(fs.existsSync(fileUrl), `Missing clean emote file for ${key}`);
   }
+});
+
+test('Notebook Focus Mode reading layout, discoverable button, reduced-motion guard, and Fleckshi focus tip', () => {
+  const nbCss = fs.readFileSync(new URL('../src/styles/notebook.css', import.meta.url), 'utf8');
+  const nbViewSrc = fs.readFileSync(new URL('../src/ui/notebookView.js', import.meta.url), 'utf8');
+  const fleckshiSrc = fs.readFileSync(new URL('../src/ui/fleckshiGuide.js', import.meta.url), 'utf8');
+
+  assert.ok(nbCss.includes('.nb-shell.is-fullscreen .nb-reading-col'));
+  assert.ok(nbCss.includes('max-width: min(104ch, 1180px)'));
+  assert.ok(nbCss.includes('.nb-focus-mode-btn'));
+  assert.ok(nbCss.includes('@media (prefers-reduced-motion: reduce)'));
+
+  assert.ok(nbViewSrc.includes('nb-focus-mode-btn'));
+  assert.ok(nbViewSrc.includes('Enter Fullscreen Focus reading mode'));
+  assert.ok(nbViewSrc.includes('Exit Focus reading mode (Escape)'));
+  assert.ok(nbViewSrc.includes('maybeSuggestFleckshiFocusMode'));
+
+  assert.ok(fleckshiSrc.includes('export function maybeSuggestFleckshiFocusMode'));
+  assert.ok(fleckshiSrc.includes('export function dismissFleckshiFocusSuggestion'));
+  assert.ok(fleckshiSrc.includes('data-fleckshi-action="enter-focus-mode"'));
 });

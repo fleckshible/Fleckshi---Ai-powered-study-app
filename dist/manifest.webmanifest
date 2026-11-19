@@ -1,7 +1,7 @@
 {
-  "name": "Revision Ledger",
-  "short_name": "Ledger",
-  "description": "Precision syllabus tracker, spaced revision, and Chrono-Engine study timer.",
+  "name": "Fleckshi",
+  "short_name": "Fleckshi",
+  "description": "Your study space, guided. Precision syllabus tracker, spaced revision, Study Notebook, and Chrono-Engine study timer.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0B0F17",

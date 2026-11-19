@@ -65,6 +65,10 @@ import {
 import { advanceSrsWithConfidence } from '../features/spacedRevision.js';
 import { buildPrintableHtml, printHtmlDocument } from '../features/pdfExporter.js';
 import {
+  dismissFleckshiFocusSuggestion,
+  maybeSuggestFleckshiFocusMode
+} from './fleckshiGuide.js';
+import {
   animateDecodeTitle,
   animateKeyLockedMorph,
   animateMindMapBuild,
@@ -196,8 +200,39 @@ let scanModalOpen = false;
 let treeModalOpen = false;
 let isNotebookFullscreen = false;
 let isOutlineCollapsed = false;
+let prevOutlineBeforeFullscreen = false;
+let focusSuggestionTimerId = null;
 let pdfPreviewOpen = false;
 const tabModelOverrides = {};
+
+function clearFocusSuggestionTimer() {
+  if (focusSuggestionTimerId !== null) {
+    clearTimeout(focusSuggestionTimerId);
+    focusSuggestionTimerId = null;
+  }
+}
+
+function setNotebookFullscreen(nextVal) {
+  const target = Boolean(nextVal);
+  if (target === isNotebookFullscreen) return;
+  isNotebookFullscreen = target;
+  clearFocusSuggestionTimer();
+  if (isNotebookFullscreen) {
+    prevOutlineBeforeFullscreen = isOutlineCollapsed;
+    isOutlineCollapsed = true;
+    dismissFleckshiFocusSuggestion();
+    const shellEl = document.getElementById('nbRootShell');
+    if (shellEl && typeof shellEl.requestFullscreen === 'function' && !document.fullscreenElement) {
+      shellEl.requestFullscreen().catch(() => {});
+    }
+  } else {
+    isOutlineCollapsed = prevOutlineBeforeFullscreen;
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }
+  renderNotebookDom(false);
+}
 
 let isStreaming = false;
 let isGeneratingTab = false;
@@ -293,6 +328,7 @@ export function unmountNotebookView() {
   isStreaming = false;
   isGeneratingTab = false;
   generatingArtifactKey = null;
+  clearFocusSuggestionTimer();
   splitMenuOpen = false;
   addSourceMenuOpen = false;
   chatDrawerOpen = false;
@@ -410,11 +446,24 @@ function renderTopHeader(subject, vaultConfig, liveModels) {
           isOutlineCollapsed ? 'Show Outline' : 'Hide Outline'
         }</button>`
       : '') +
-    `<button type="button" class="nb-model-chip" id="nbToggleFullscreenBtn" aria-pressed="${Boolean(
+    `<button type="button" class="nb-model-chip nb-focus-mode-btn${
+      isNotebookFullscreen ? ' is-active' : ''
+    }" id="nbToggleFullscreenBtn" aria-pressed="${Boolean(
       isNotebookFullscreen
-    )}" title="Toggle Fullscreen Focus Mode">${
-      isNotebookFullscreen ? 'Exit Focus' : 'Fullscreen'
-    }</button>` +
+    )}" aria-label="${
+      isNotebookFullscreen
+        ? 'Exit Focus reading mode (Escape)'
+        : 'Enter Fullscreen Focus reading mode'
+    }" title="${
+      isNotebookFullscreen
+        ? 'Exit Focus reading mode (Esc)'
+        : 'Expand into Fullscreen Focus reading mode'
+    }">` +
+    (isNotebookFullscreen
+      ? `<svg class="nb-focus-mode-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>`
+      : `<svg class="nb-focus-mode-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`) +
+    `<span>${isNotebookFullscreen ? 'Exit Focus' : 'Focus Mode'}</span>` +
+    `</button>` +
     (qRunning
       ? `<button type="button" class="nb-model-chip" id="nbOpenQueuePillBtn">${renderAnimatedIcon(
           'home:queue',
@@ -851,6 +900,38 @@ function renderNotebookDom(animateEntrance = false) {
       document.getElementById('nbOcrPreviewBox') || document.getElementById('nbSyllabusDropZone')
     );
   }
+
+  scheduleFocusModeSuggestionCheck(topTab, activeTool);
+}
+
+function scheduleFocusModeSuggestionCheck(topTab, activeTool) {
+  clearFocusSuggestionTimer();
+  if (
+    isNotebookFullscreen ||
+    isGeneratingTab ||
+    isStreaming ||
+    editNoteMode ||
+    topTab !== 'learn' ||
+    !['notes', 'summary', 'studyGuide', 'faq', 'glossary'].includes(activeTool)
+  ) {
+    return;
+  }
+  const textBody = document.getElementById('nbArtifactTextBody');
+  const scrollEl = document.getElementById('nbArtifactScroll');
+  if (!textBody) return;
+  const textLen = (textBody.textContent || '').trim().length;
+  const isLongNote =
+    textLen >= 360 ||
+    Boolean(scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 60);
+  if (!isLongNote) return;
+
+  focusSuggestionTimerId = setTimeout(() => {
+    focusSuggestionTimerId = null;
+    if (isNotebookFullscreen || isGeneratingTab || isStreaming || editNoteMode) return;
+    maybeSuggestFleckshiFocusMode({
+      onEnterFocus: () => setNotebookFullscreen(true)
+    });
+  }, 1800);
 }
 
 async function switchTab(nextTab, extraScope = null) {
@@ -1604,10 +1685,8 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
             versionModalKey = null;
             confirmRegenState = null;
           } else if (isNotebookFullscreen) {
-            isNotebookFullscreen = false;
-            if (document.fullscreenElement) {
-              document.exitFullscreen?.().catch(() => {});
-            }
+            setNotebookFullscreen(false);
+            return;
           }
           renderNotebookDom(false);
         }
@@ -1673,16 +1752,7 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
   });
 
   document.getElementById('nbToggleFullscreenBtn')?.addEventListener('click', () => {
-    isNotebookFullscreen = !isNotebookFullscreen;
-    if (isNotebookFullscreen) {
-      const shellEl = document.getElementById('nbRootShell');
-      if (shellEl && typeof shellEl.requestFullscreen === 'function' && !document.fullscreenElement) {
-        shellEl.requestFullscreen().catch(() => {});
-      }
-    } else if (document.fullscreenElement) {
-      document.exitFullscreen?.().catch(() => {});
-    }
-    renderNotebookDom(false);
+    setNotebookFullscreen(!isNotebookFullscreen);
   });
 
   document.getElementById('nbExportPdfBtn')?.addEventListener('click', () => {
@@ -2023,7 +2093,7 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
     applyLedgerModalOpen = false;
     activeNotebook.activeTab = 'home';
     await saveNotebook(activeNotebook);
-    fallbackToastMsg = 'Syllabus Brain topics synced into Revision Ledger!';
+    fallbackToastMsg = 'Syllabus Brain topics synced into Ledger!';
     setState(nextState);
   });
 

@@ -1,6 +1,8 @@
-# Revision Ledger
+# Fleckshi
 
-A distraction-free study tracker and **Syllabus Brain Study Notebook** built with Vite, vanilla JavaScript, `animejs` v4, and `motion` (`motion.dev`), designed with a Deep Carbon-Blue & Arctic White studio aesthetic.
+> **Your study space, guided.**
+
+A distraction-free study tracker, guided in-app companion, and **Syllabus Brain Study Notebook** built with Vite, vanilla JavaScript, `animejs` v4, and `motion` (`motion.dev`), designed with a Deep Carbon-Blue & Arctic White studio aesthetic.
 
 ## Features
 
@@ -41,7 +43,7 @@ npm run preview
 
 ## Install the app
 
-Revision Ledger is a Progressive Web App. [Download the production build](https://github.com/fleckshible/revision-ledger/raw/refs/heads/main/revision-ledger-pwa.zip). To install it, serve the build from an HTTPS site and use the browser's **Install app** or **Add to Home screen** option. Locally, run `npm run dev`; localhost also supports PWA installation.
+Fleckshi is a Progressive Web App. [Download the v2.2.0 production build](https://github.com/fleckshible/revision-ledger/raw/refs/heads/main/fleckshi-v2.2.0-pwa.zip). To install it, serve the build from an HTTPS site and use the browser's **Install app** or **Add to Home screen** option. Locally, run `npm run dev`; localhost also supports PWA installation.
 
 ## Using Study Notebook & Gemini BYOK
 

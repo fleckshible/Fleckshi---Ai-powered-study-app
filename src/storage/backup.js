@@ -10,7 +10,7 @@ import { migrateState } from './migrations.js';
 export function exportStateJson(state, notebooks = null) {
   const payload = {
     exportedAt: new Date().toISOString(),
-    app: 'Revision Ledger',
+    app: 'Fleckshi',
     data: state
   };
   if (Array.isArray(notebooks)) {
@@ -30,7 +30,7 @@ export function downloadBackup(state, notebooks = null) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `revision-ledger-backup-${toDateKey()}.json`;
+  a.download = `fleckshi-backup-${toDateKey()}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();

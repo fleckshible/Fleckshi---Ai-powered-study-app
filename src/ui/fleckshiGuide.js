@@ -63,6 +63,37 @@ let lastExternalPointer = null; // { x, y, time, rect }
 let positionedCoords = null; // { left, top } | null
 let lastGuidedView = null;
 
+const FOCUS_TIP_SESSION_KEY = 'revision-ledger-fleckshi-focus-tip-v1';
+let focusTipDismissedInSession = false;
+let pendingFocusEnterCallback = null;
+
+function isFocusTipAlreadySeen() {
+  if (focusTipDismissedInSession) return true;
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(FOCUS_TIP_SESSION_KEY) === '1') {
+      focusTipDismissedInSession = true;
+      return true;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return false;
+}
+
+export function dismissFleckshiFocusSuggestion() {
+  focusTipDismissedInSession = true;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(FOCUS_TIP_SESSION_KEY, '1');
+    }
+  } catch {
+    // ignore storage errors
+  }
+  if (isOpen && customMessage?.showEnterFocusBtn) {
+    closeBubble({ restoreFocus: false });
+  }
+}
+
 function isReducedTypingMode() {
   return prefersReducedMotion() || getFxLevel() === 'minimal' || Boolean(prefs.typingPaused);
 }
@@ -150,9 +181,9 @@ function resolveCurrentStepViewModel() {
     case 'intro':
       return {
         pill: '1/5 · Welcome',
-        title: 'Hi, I am Fleckshi',
+        title: 'Welcome to Fleckshi',
         body:
-          'I can show you around Revision Ledger—from adding your first subject to generating study notes in Notebook.',
+          'Your study space, guided. I’m Fleckshi—I can show you around, from adding your first subject to generating study notes in Notebook.',
         sub: ''
       };
     case 'ledger':
@@ -418,6 +449,14 @@ function renderPortraitHtml(size = 'md') {
 
 function renderCloudBodyExtras() {
   if (customMessage) {
+    if (customMessage.showEnterFocusBtn) {
+      return (
+        `<div class="fleckshi-actions">` +
+        `<button type="button" class="fleckshi-btn-secondary" data-fleckshi-action="dismiss-focus-tip">Not now</button>` +
+        `<button type="button" class="fleckshi-btn-primary" data-fleckshi-action="enter-focus-mode">Enter Focus Mode</button>` +
+        `</div>`
+      );
+    }
     const extraBtns = [];
     if (customMessage.showAddSubjectBtn) {
       extraBtns.push(
@@ -650,6 +689,16 @@ function goToMode(mode, emote = 'idle', { custom = null, restartTyping = true, g
 }
 
 function closeBubble({ persistDismiss = false, snoozeMs = 0, restoreFocus = false } = {}) {
+  if (customMessage?.showEnterFocusBtn) {
+    focusTipDismissedInSession = true;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(FOCUS_TIP_SESSION_KEY, '1');
+      }
+    } catch {
+      // ignore
+    }
+  }
   clearTypingTimer();
   clearSpotlightHighlight();
   isTyping = false;
@@ -962,6 +1011,18 @@ function attachGuideDomEvents() {
         setTimeout(() => rootEl?.querySelector('#fleckshiSubjectInput')?.focus(), 0);
       } else if (act === 'goto-hub') {
         goToMode(returnModeAfterAdd === 'notebook' && !prefs.onboardingCompleted ? 'notebook' : 'hub', 'idle');
+      } else if (act === 'enter-focus-mode') {
+        const cb = pendingFocusEnterCallback;
+        pendingFocusEnterCallback = null;
+        dismissFleckshiFocusSuggestion();
+        if (typeof cb === 'function') {
+          cb();
+        } else {
+          document.getElementById('nbToggleFullscreenBtn')?.click();
+        }
+      } else if (act === 'dismiss-focus-tip') {
+        pendingFocusEnterCallback = null;
+        dismissFleckshiFocusSuggestion();
       }
     });
   });
@@ -1215,6 +1276,53 @@ export function openFleckshiHelp({ mode = null, nearPointer = false, source = 'a
     );
     focusTarget?.focus({ preventScroll: true });
   }
+}
+
+/**
+ * Occasionally suggest Notebook Fullscreen Focus Mode when reading a long note.
+ * Never interrupts active typing, open dialogs, onboarding tour steps, or once dismissed in the session.
+ */
+export function maybeSuggestFleckshiFocusMode({ onEnterFocus = null } = {}) {
+  if (!initialized || !rootEl || typeof document === 'undefined') return false;
+  if (isFocusTipAlreadySeen()) return false;
+  if (isFleckshiSnoozed(prefs)) return false;
+  if (isOpen && !prefs.onboardingCompleted) return false;
+  if (isOpen && currentMode === 'add-subject') return false;
+  if (document.querySelector('.modal-backdrop, .nb-scope-sheet, .nb-shell.is-fullscreen')) return false;
+
+  const activeEl = document.activeElement;
+  if (
+    activeEl instanceof Element &&
+    activeEl.matches('input, textarea, select, [contenteditable="true"]')
+  ) {
+    return false;
+  }
+
+  focusTipDismissedInSession = true;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(FOCUS_TIP_SESSION_KEY, '1');
+    }
+  } catch {
+    // ignore
+  }
+
+  pendingFocusEnterCallback = onEnterFocus;
+  isOpen = true;
+  currentMode = 'hub';
+  currentEmote = 'helping';
+  // Keep Fleckshi docked at the bottom-right corner so she stays clear of the top-right Focus Mode button and note text
+  positionedCoords = null;
+  customMessage = {
+    pill: 'Reading Tip',
+    title: 'Want more room to read?',
+    body: 'Switch to Focus Mode to expand this note across the screen and hide extra bars. Press Esc anytime to exit.',
+    showEnterFocusBtn: true
+  };
+
+  renderGuideDom({ restartTyping: true });
+  applySpotlight('#nbToggleFullscreenBtn');
+  return true;
 }
 
 /**

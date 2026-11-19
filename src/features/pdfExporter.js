@@ -16,7 +16,7 @@ function collectKatexStylesheets() {
  * Build a self-contained, light-paper print/PDF HTML document for Notebook content.
  */
 export function buildPrintableHtml({
-  subjectName = 'Revision Ledger',
+  subjectName = 'Fleckshi',
   scopeLabel = 'Study Notes',
   toolLabel = 'Notes',
   bodyHtml = '',
@@ -157,7 +157,7 @@ ${katexLinks}
     <header class="pdf-doc-header">
       <div class="pdf-kicker">${safeSubject} &middot; ${safeTool}</div>
       <h1 class="pdf-title">${safeScope}</h1>
-      <div class="pdf-meta">Exported from Revision Ledger &middot; ${safeDate}</div>
+      <div class="pdf-meta">Exported from Fleckshi &middot; ${safeDate}</div>
     </header>
     <main class="pdf-content">${bodyHtml}</main>
   </article>

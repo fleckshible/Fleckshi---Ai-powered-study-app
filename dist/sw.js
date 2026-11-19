@@ -1,4 +1,4 @@
-const CACHE_NAME = 'revision-ledger-v3';
+const CACHE_NAME = 'fleckshi-v4';
 const CORE_ASSETS = [
   './',
   './index.html',
