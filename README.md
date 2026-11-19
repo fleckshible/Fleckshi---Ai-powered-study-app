@@ -20,31 +20,32 @@ A distraction-free study tracker and **Syllabus Brain Study Notebook** built wit
   - **Unified AI & Model Settings Modal:** Single source of truth for API key vault, live `models.list` discovery, `Fast` / `Balanced` / `Deep` presets, 5 per-task model routers (enforcing vision capability for OCR), `thinkingLevel` vs `thinkingBudget`, automatic fallback queue, default Grounding mode, and Effects (`Full / Balanced / Minimal`).
   - **Icon System v2 & Accessibility:** Duotone `20px`/`24px` SVG icons in rounded gradient tiles, zero idle icon loops (one-time mount draw-in + hover/focus micro-motion), ARIA `tablist`/`tab`/`tabpanel` with arrow-key navigation, modal/drawer focus trapping with focus restoration, and `visibilitychange` animation pausing.
 
-## Windows PowerShell Commands
+## Get Started
 
 ```powershell
-# Run from inside the project folder:
-cd "C:\Users\verma\OneDrive\Documents\coding\webs\revision ledger"
+# Clone the project and enter its folder
+git clone https://github.com/fleckshible/revision-ledger.git
+cd revision-ledger
 
-# Install dependencies
+# Install dependencies and start the development server
 npm install
+ npm run dev
+```
 
-# Run unit tests
-node --test tests/core.test.mjs
+To create and preview a production build:
 
-# Start dev server
-npm run dev
-
-# Build production bundle
+```powershell
 npm run build
-
-# Preview built production bundle locally
 npm run preview
 ```
 
+## Install the app
+
+Revision Ledger is a Progressive Web App. Open its deployed HTTPS site in a supported browser and use the browser's **Install app** or **Add to Home screen** option. The app can also be run locally at `http://localhost` with `npm run dev`. A source ZIP is not itself an installer; the PWA must be served from HTTPS (or localhost) to enable installation.
+
 ## Using Study Notebook & Gemini BYOK
 
-1. Open the **Notebook** tab in the left sidebar (or press `Ctrl+K` and choose `Open Study Notebook`).
+1. Open the **Notebook** tab in the left sidebar.
 2. Click **Set API Key** (`Key & Models`), paste your key from **Google AI Studio** (`aistudio.google.com/apikey`), and click **Test Key & Refresh Models**.
    - **Security Note:** By default, your key stays remembered in browser `localStorage` (**an unlocked key is readable by any script on this origin**). Optional passphrase encryption (`PBKDF2` + `AES-GCM`) is available in the modal. **API keys are never logged or exported in JSON backups.**
 3. On **Home**, drop or photograph your syllabus (or import from existing Ledger topics). Review the extracted `Chapters -> Topics -> Subtopics` tree, click **Looks good — Save Syllabus Brain**, and optionally click **Apply to Ledger**.

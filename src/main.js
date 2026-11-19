@@ -41,7 +41,6 @@ import { renderFocusView } from './ui/focusView.js';
 import { renderPomodoroWidget, renderChronoDialSvg, renderDigitSpans } from './ui/pomodoroWidget.js';
 import { renderImportModal } from './ui/importModal.js';
 import { renderBackupModal } from './ui/backupModal.js';
-import { renderCommandBar, buildCommandItems } from './ui/commandBar.js';
 
 import {
   animateMarkSpring,
@@ -91,10 +90,7 @@ let modalState = {
   importOpen: false,
   importRawText: '',
   importPreview: null,
-  backupOpen: false,
-  cmdOpen: false,
-  cmdQuery: '',
-  cmdIndex: 0
+  backupOpen: false
 };
 
 let pendingConfidence = null; // { subjectId, topicId, topicName }
@@ -332,9 +328,7 @@ function renderApp() {
   }
 
   let modalHtml = '';
-  if (modalState.cmdOpen) {
-    modalHtml = renderCommandBar(state, modalState.cmdQuery, modalState.cmdIndex);
-  } else if (modalState.importOpen) {
+  if (modalState.importOpen) {
     modalHtml = renderImportModal(modalState.importPreview, modalState.importRawText);
   } else if (modalState.backupOpen) {
     modalHtml = renderBackupModal(state);
@@ -368,25 +362,13 @@ function renderApp() {
         }
       });
   }
-
-  if (modalState.cmdOpen) {
-    const inp = document.getElementById('cmdInput');
-    inp?.focus();
-    inp?.setSelectionRange(inp.value.length, inp.value.length);
-  }
 }
 
 function renderModalOnly() {
   const mount = document.getElementById('modalMount');
   if (!mount) return;
   const state = getState();
-  if (modalState.cmdOpen) {
-    mount.innerHTML = renderCommandBar(state, modalState.cmdQuery, modalState.cmdIndex);
-    attachModalEvents();
-    const inp = document.getElementById('cmdInput');
-    inp?.focus();
-    inp?.setSelectionRange(inp.value.length, inp.value.length);
-  } else if (modalState.importOpen) {
+  if (modalState.importOpen) {
     mount.innerHTML = renderImportModal(modalState.importPreview, modalState.importRawText);
     attachModalEvents();
   } else if (modalState.backupOpen) {
@@ -636,95 +618,7 @@ function attachPomodoroEvents() {
   });
 }
 
-function executeCommandItem(item) {
-  if (!item) return;
-  modalState.cmdOpen = false;
-  if (item.action === 'nav') {
-    setState((prev) => ({ ...prev, activeView: item.payload }));
-  } else if (item.action === 'subject') {
-    setState((prev) => ({ ...prev, activeSubjectId: item.payload, activeView: 'subject' }));
-  } else if (item.action === 'attach') {
-    attachPomodoroTopic(item.payload.subjectId, item.payload.topicId, item.payload.topicName);
-    setState((prev) => ({ ...prev, activeView: 'focus' }));
-  } else if (item.action === 'preset') {
-    const { pomodoro } = getState();
-    setPomodoroDurations(item.payload, pomodoro?.breakMinutes || 5);
-    renderApp();
-  } else if (item.action === 'audio') {
-    setAudioPreset(item.payload);
-    renderApp();
-  } else if (item.action === 'theme') {
-    toggleTheme();
-  } else if (item.action === 'nb-key') {
-    setState((prev) => ({ ...prev, activeView: 'notebook' }));
-    ensureNotebookModule().then((mod) => {
-      if (getState().activeView === 'notebook') {
-        mod.mountNotebookView(getState().activeSubjectId).then(() => mod.openNotebookKeyModal());
-      }
-    });
-  } else if (item.action === 'nb-syllabus') {
-    setState((prev) => ({ ...prev, activeView: 'notebook' }));
-    ensureNotebookModule().then((mod) => {
-      if (getState().activeView === 'notebook') {
-        mod.mountNotebookView(getState().activeSubjectId).then(() => mod.openNotebookSyllabusModal());
-      }
-    });
-  } else if (item.action === 'fleckshi-help') {
-    renderModalOnly();
-    openFleckshiHelp({ source: 'command' });
-  }
-}
-
 function attachModalEvents() {
-  // Command Palette
-  const cmdInput = document.getElementById('cmdInput');
-  if (cmdInput) {
-    cmdInput.addEventListener('input', () => {
-      modalState.cmdQuery = cmdInput.value;
-      modalState.cmdIndex = 0;
-      renderModalOnly();
-    });
-
-    cmdInput.addEventListener('keydown', (e) => {
-      const all = buildCommandItems(getState());
-      const q = modalState.cmdQuery.trim().toLowerCase();
-      const filtered = q
-        ? all.filter(
-            (i) => i.label.toLowerCase().includes(q) || i.category.toLowerCase().includes(q)
-          )
-        : all.slice(0, 14);
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        modalState.cmdIndex = (modalState.cmdIndex + 1) % Math.max(1, filtered.length);
-        renderModalOnly();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        modalState.cmdIndex =
-          (modalState.cmdIndex - 1 + Math.max(1, filtered.length)) % Math.max(1, filtered.length);
-        renderModalOnly();
-      } else if (e.key === 'Enter' && filtered.length) {
-        e.preventDefault();
-        executeCommandItem(filtered[modalState.cmdIndex] || filtered[0]);
-      }
-    });
-  }
-
-  document.getElementById('cmdBackdrop')?.addEventListener('click', (e) => {
-    if (e.target.id === 'cmdBackdrop') {
-      modalState.cmdOpen = false;
-      renderModalOnly();
-    }
-  });
-
-  document.querySelectorAll('[data-cmd-id]').forEach((el) => {
-    el.addEventListener('click', () => {
-      const id = el.getAttribute('data-cmd-id');
-      const found = buildCommandItems(getState()).find((i) => i.id === id);
-      executeCommandItem(found);
-    });
-  });
-
   // Bulk Import Modal
   document.getElementById('closeImportModalBtn')?.addEventListener('click', () => {
     modalState.importOpen = false;
@@ -802,14 +696,6 @@ function attachModalEvents() {
 function attachEvents() {
   attachPomodoroEvents();
   attachModalEvents();
-
-  // Command palette trigger
-  document.getElementById('openCmdBarBtn')?.addEventListener('click', () => {
-    modalState.cmdOpen = true;
-    modalState.cmdQuery = '';
-    modalState.cmdIndex = 0;
-    renderModalOnly();
-  });
 
   // Navigation tabs & sidebar collapse rail
   document.querySelectorAll('[data-nav]').forEach((btn) => {
@@ -1326,22 +1212,12 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Global keyboard shortcuts: Ctrl+K / Cmd+K and Escape
+// Global Escape key to close menus & modals
 document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault();
-    modalState.cmdOpen = !modalState.cmdOpen;
-    modalState.cmdQuery = '';
-    modalState.cmdIndex = 0;
-    renderModalOnly();
-    return;
-  }
-
   if (e.key === 'Escape') {
     document.querySelectorAll('.topic-action-menu.open').forEach((m) => m.classList.remove('open'));
     document.querySelectorAll('[data-topic-menu-btn]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
-    if (modalState.cmdOpen || modalState.importOpen || modalState.backupOpen) {
-      modalState.cmdOpen = false;
+    if (modalState.importOpen || modalState.backupOpen) {
       modalState.importOpen = false;
       modalState.backupOpen = false;
       renderModalOnly();

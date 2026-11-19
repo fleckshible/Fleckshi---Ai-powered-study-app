@@ -2,9 +2,8 @@ import { escapeHtml } from '../utils/dom.js';
 import { prefersReducedMotion } from '../animations/reducedMotion.js';
 import { getFxLevel } from '../animations/fxController.js';
 import {
-  FLECKSHI_SPRITE_URL,
   getEmoteSpec,
-  getEmoteBackgroundPosition,
+  getEmoteImageUrl,
   probeFleckshiSprite
 } from '../features/fleckshiEmotes.js';
 import {
@@ -59,9 +58,10 @@ let typedLength = 0;
 let isTyping = false;
 let messageSeq = 0;
 
-// Optional discrete near-pointer placement (desktop >= 900px, never continuous tracking)
+// Optional discrete near-target / near-pointer placement (desktop >= 900px, never continuous tracking)
 let lastExternalPointer = null; // { x, y, time, rect }
 let positionedCoords = null; // { left, top } | null
+let lastGuidedView = null;
 
 function isReducedTypingMode() {
   return prefersReducedMotion() || getFxLevel() === 'minimal' || Boolean(prefs.typingPaused);
@@ -262,14 +262,17 @@ function startTypingMessage(nextText) {
 function computeClampedStagePos(pointerInfo) {
   if (typeof window === 'undefined' || window.innerWidth < 900 || !pointerInfo) return null;
   const stageEl = rootEl?.querySelector('#fleckshiStage');
-  const stageW = Math.min(336, Math.max(260, stageEl?.offsetWidth || 336));
-  const stageH = Math.min(380, Math.max(180, stageEl?.offsetHeight || 260));
+  const stageW = Math.min(344, Math.max(260, stageEl?.offsetWidth || 344));
+  const stageH = Math.min(420, Math.max(210, stageEl?.offsetHeight || 290));
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const minLeft = 272; // clear of sidebar rail
+  const sidebarEl = document.querySelector('.cover');
+  const sidebarRect = sidebarEl ? sidebarEl.getBoundingClientRect() : null;
+  const sidebarRight = sidebarRect && sidebarRect.width > 0 ? Math.round(sidebarRect.right) : 250;
+  const minLeft = Math.max(16, Math.min(sidebarRight + 14, vw - stageW - 18));
   const maxLeft = Math.max(minLeft, vw - stageW - 18);
   const minTop = 16;
-  const maxTop = Math.max(minTop, vh - stageH - 84);
+  const maxTop = Math.max(minTop, vh - stageH - 24);
 
   const avoid = pointerInfo.rect;
   const margin = 16;
@@ -281,50 +284,132 @@ function computeClampedStagePos(pointerInfo) {
     const leftSpace = avoid.left - minLeft - margin;
     if (rightSpace >= stageW) {
       left = avoid.right + margin;
-      top = avoid.top - 32;
+      top = Math.max(minTop, avoid.top - 12);
     } else if (leftSpace >= stageW) {
       left = avoid.left - stageW - margin;
-      top = avoid.top - 32;
+      top = Math.max(minTop, avoid.top - 12);
+    } else if (avoid.bottom + margin + stageH <= vh - 24) {
+      left = avoid.left;
+      top = avoid.bottom + margin;
     } else if (avoid.top - margin - stageH >= minTop) {
       left = avoid.left;
       top = avoid.top - stageH - margin;
-    } else {
-      left = avoid.left;
-      top = avoid.bottom + margin;
+    }
+  }
+
+  let clampedLeft = Math.round(Math.max(minLeft, Math.min(maxLeft, left)));
+  let clampedTop = Math.round(Math.max(minTop, Math.min(maxTop, top)));
+
+  // Avoid covering an actively focused input/textarea outside Fleckshi
+  const activeEl = document.activeElement;
+  if (
+    activeEl instanceof Element &&
+    (!rootEl || !rootEl.contains(activeEl)) &&
+    activeEl.matches('input, textarea, select')
+  ) {
+    const ar = activeEl.getBoundingClientRect();
+    const overlapsActive =
+      clampedLeft < ar.right + 12 &&
+      clampedLeft + stageW > ar.left - 12 &&
+      clampedTop < ar.bottom + 12 &&
+      clampedTop + stageH > ar.top - 12;
+    if (overlapsActive) {
+      if (ar.bottom + 16 + stageH <= vh - 20) {
+        clampedTop = Math.round(ar.bottom + 16);
+      } else if (ar.top - 16 - stageH >= minTop) {
+        clampedTop = Math.round(ar.top - 16 - stageH);
+      } else if (ar.right + 16 + stageW <= vw - 16) {
+        clampedLeft = Math.round(ar.right + 16);
+      }
     }
   }
 
   return {
-    left: Math.round(Math.max(minLeft, Math.min(maxLeft, left))),
-    top: Math.round(Math.max(minTop, Math.min(maxTop, top)))
+    left: Math.round(Math.max(minLeft, Math.min(maxLeft, clampedLeft))),
+    top: Math.round(Math.max(minTop, Math.min(maxTop, clampedTop)))
   };
 }
 
-function renderPortraitHtml() {
-  const spec = getEmoteSpec(currentEmote);
+function findFirstVisibleTarget(selector) {
+  if (typeof document === 'undefined' || !selector) return null;
+  const list = document.querySelectorAll(selector);
+  for (const el of list) {
+    const r = el.getBoundingClientRect();
+    if (r && (r.width > 0 || r.height > 0)) return el;
+  }
+  return null;
+}
+
+function guideToTarget(selector, { spotlight = true } = {}) {
+  if (spotlight) {
+    applySpotlight(selector);
+  }
+  if (typeof window === 'undefined' || typeof document === 'undefined' || window.innerWidth < 900) {
+    return;
+  }
+  const target = findFirstVisibleTarget(selector);
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  positionedCoords = computeClampedStagePos({
+    x: rect.right,
+    y: rect.top,
+    rect
+  });
+}
+
+function getViewGuideSelector(viewName) {
+  switch (viewName) {
+    case 'focus':
+      return '#chronoMainWrap, [data-nav="focus"]';
+    case 'today':
+      return '[data-nav="today"]';
+    case 'dashboard':
+      return '[data-nav="dashboard"]';
+    case 'notebook':
+      return '#nbTab_learn, .nb-top-tabs, [data-nav="notebook"]';
+    case 'subject':
+    default:
+      return '#addTopicForm, [data-nav="subject"]';
+  }
+}
+
+function getModeGuideSpec(mode) {
+  switch (mode) {
+    case 'intro':
+      return { selector: '[data-nav="subject"], #addSubjectForm', spotlight: false };
+    case 'ledger':
+      return { selector: '#addTopicForm, [data-nav="subject"]', spotlight: true };
+    case 'add-subject':
+      return { selector: '#addSubjectForm', spotlight: true };
+    case 'notebook':
+      return { selector: '[data-nav="notebook"], .nb-top-tabs', spotlight: true };
+    case 'learn':
+      return { selector: '#nbTab_learn, [data-nav="notebook"]', spotlight: true };
+    default:
+      return null;
+  }
+}
+
+function renderPortraitHtml(size = 'md') {
+  const sizeCls = size === 'sm' ? ' fleckshi-portrait--sm' : '';
+  const iconPx = size === 'sm' ? 18 : 26;
+
   if (spriteStatus.available) {
-    const pos = getEmoteBackgroundPosition(currentEmote);
+    const imgUrl = getEmoteImageUrl(currentEmote);
     return (
-      `<div class="fleckshi-portrait" title="${escapeHtml(spec.label)}">` +
-      `<span class="fleckshi-sprite" role="img" aria-label="Fleckshi expression: ${escapeHtml(
-        spec.label
-      )}" style="background-image:url('${escapeHtml(FLECKSHI_SPRITE_URL)}');background-position:${pos.xPct.toFixed(
-        4
-      )}% ${pos.yPct.toFixed(4)}%;"></span>` +
+      `<div class="fleckshi-portrait${sizeCls}">` +
+      `<img class="fleckshi-img" src="${escapeHtml(imgUrl)}" alt="Fleckshi" decoding="async">` +
       `</div>`
     );
   }
 
-  // Neutral geometric fallback emblem (no text monogram, no duplicate mood text)
+  // Intentional guide compass/spark emblem fallback (when image assets are missing)
   return (
-    `<div class="fleckshi-portrait" title="Expression: ${escapeHtml(
-      spec.label
-    )} (copy sprite sheet to public/assets/fleckshi/fleckshi-emotes-source.png)">` +
-    `<div class="fleckshi-portrait-fallback" role="img" aria-label="Fleckshi (${escapeHtml(spec.label)})">` +
-    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
-    `<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/>` +
-    `<circle cx="9.5" cy="11.5" r="0.8" fill="currentColor" stroke="none"/>` +
-    `<circle cx="14.5" cy="11.5" r="0.8" fill="currentColor" stroke="none"/>` +
+    `<div class="fleckshi-portrait${sizeCls}" title="Fleckshi assets missing — place sprite sheet at public/assets/fleckshi/fleckshi-emotes-source.png">` +
+    `<div class="fleckshi-portrait-fallback" role="img" aria-label="Fleckshi">` +
+    `<svg width="${iconPx}" height="${iconPx}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+    `<circle cx="12" cy="12" r="9"/>` +
+    `<polygon points="16.2 7.8 14 14 7.8 16.2 10 10 16.2 7.8" fill="currentColor" fill-opacity="0.22"/>` +
     `</svg>` +
     `</div>` +
     `</div>`
@@ -472,7 +557,6 @@ function renderGuideDom({ restartTyping = false } = {}) {
 
   const snoozed = isFleckshiSnoozed(prefs);
   const launcherLabel = snoozed ? 'Help · Snoozed' : 'Help';
-  const spec = getEmoteSpec(currentEmote);
 
   const vm = resolveCurrentStepViewModel();
   const canMoveNearClick =
@@ -505,7 +589,9 @@ function renderGuideDom({ restartTyping = false } = {}) {
       `<button type="button" class="fleckshi-mini-btn" id="fleckshiDismissBtn" aria-label="Dismiss Fleckshi help" title="Dismiss">&times;</button>` +
       `</div>` +
       `</div>` +
+      `<div class="fleckshi-cloud-title-row">` +
       `<h2 class="fleckshi-cloud-title" id="fleckshiCloudTitle">${escapeHtml(vm.title)}</h2>` +
+      `</div>` +
       `<p class="fleckshi-cloud-copy" id="fleckshiTypedCopy"></p>` +
       (vm.sub
         ? `<p class="fleckshi-cloud-sub" id="fleckshiContextSummary">${escapeHtml(vm.sub)}</p>`
@@ -514,17 +600,15 @@ function renderGuideDom({ restartTyping = false } = {}) {
       renderCloudBodyExtras() +
       `</div>` +
       `<button type="button" class="fleckshi-character-dock" id="fleckshiDockToggleBtn" aria-expanded="true" title="Hide Fleckshi help">` +
-      renderPortraitHtml() +
+      renderPortraitHtml('md') +
       `<div class="fleckshi-character-meta">` +
-      `<span class="fleckshi-name-row"><span class="fleckshi-name">Fleckshi</span><span class="fleckshi-mood-tag">${escapeHtml(
-        spec.label
-      )}</span></span>` +
+      `<span class="fleckshi-name">Fleckshi</span>` +
       `<span class="fleckshi-dock-state" id="fleckshiDockState">${escapeHtml(formatDockStatus())}</span>` +
       `</div>` +
       `</button>` +
       `</section>`
     : `<button type="button" class="fleckshi-launcher" id="fleckshiLauncherBtn" aria-expanded="false" aria-controls="fleckshiStage" title="Open Fleckshi Help Guide">` +
-      `<span class="fleckshi-launcher-icon" aria-hidden="true">?</span>` +
+      renderPortraitHtml('sm') +
       `<span>${escapeHtml(launcherLabel)}</span>` +
       `</button>`;
 
@@ -548,13 +632,19 @@ function renderGuideDom({ restartTyping = false } = {}) {
   }
 }
 
-function goToMode(mode, emote = 'idle', { custom = null, restartTyping = true } = {}) {
+function goToMode(mode, emote = 'idle', { custom = null, restartTyping = true, guide = true } = {}) {
   currentMode = mode;
   currentEmote = emote;
   customMessage = custom;
   if (mode !== 'add-subject') {
     pendingConfirmName = '';
     subjectFeedback = null;
+  }
+  if (guide && !custom) {
+    const modeSpec = getModeGuideSpec(mode);
+    if (modeSpec) {
+      guideToTarget(modeSpec.selector, { spotlight: modeSpec.spotlight });
+    }
   }
   renderGuideDom({ restartTyping });
 }
@@ -604,7 +694,7 @@ async function handleOpenLearn(fromSuggestion = false) {
     return;
   }
 
-  applySpotlight('#nbTab_learn, #nbEmptyGenerateBtn, #nbSplitMainBtn');
+  guideToTarget('#nbTab_learn, #nbEmptyGenerateBtn, #nbSplitMainBtn');
   if (!prefs.onboardingCompleted && !fromSuggestion) {
     prefs = saveFleckshiPrefs({ onboardingCompleted: true });
   }
@@ -644,9 +734,9 @@ function handleSuggestion(suggestId) {
     }
     const hasSubject = Boolean(snapshot?.subjects?.length);
     if (hasSubject) {
-      applySpotlight('#addTopicForm, #openBulkImportBtn');
+      guideToTarget('#addTopicForm, #openBulkImportBtn');
     } else {
-      applySpotlight('#addSubjectForm');
+      guideToTarget('#addSubjectForm');
     }
     goToMode('hub', hasSubject ? 'helping' : 'curious', {
       custom: {
@@ -673,7 +763,7 @@ function handleSuggestion(suggestId) {
       });
       return;
     }
-    applySpotlight('[data-nav="today"]');
+    guideToTarget('[data-nav="today"]');
     const due = Number(snapshot?.dueCount) || 0;
     goToMode('hub', due > 0 ? 'focused' : 'relieved', {
       custom: {
@@ -700,7 +790,7 @@ function handleSuggestion(suggestId) {
       });
       return;
     }
-    applySpotlight('#chronoMainWrap');
+    guideToTarget('#chronoMainWrap');
     goToMode('hub', 'focused', {
       custom: {
         pill: 'Focus Confirmed',
@@ -837,7 +927,7 @@ function attachGuideDomEvents() {
       } else if (act === 'show-ledger') {
         const res = actions.navigateTo?.('subject') || { ok: false };
         if (res.ok) {
-          applySpotlight('[data-nav="subject"]');
+          guideToTarget('[data-nav="subject"]');
           currentEmote = 'happy';
           renderGuideDom({ restartTyping: false });
         }
@@ -850,7 +940,7 @@ function attachGuideDomEvents() {
       } else if (act === 'show-notebook') {
         const res = actions.navigateTo?.('notebook') || { ok: false };
         if (res.ok) {
-          applySpotlight('[data-nav="notebook"]');
+          guideToTarget('[data-nav="notebook"]');
           currentEmote = 'excited';
           renderGuideDom({ restartTyping: false });
         } else {
@@ -952,7 +1042,7 @@ function attachGlobalListeners() {
     'keydown',
     (e) => {
       if (e.key !== 'Escape' || !isOpen) return;
-      if (document.querySelector('.modal-backdrop, .cmd-backdrop')) return;
+      if (document.querySelector('.modal-backdrop')) return;
       const focusInside = Boolean(rootEl && document.activeElement && rootEl.contains(document.activeElement));
       e.preventDefault();
       closeBubble({ restoreFocus: focusInside });
@@ -1026,12 +1116,15 @@ export function initFleckshiGuide(nextActions = {}, initialSnapshot = null) {
     currentMode = 'intro';
     currentEmote = 'cheerful';
     customMessage = null;
+    const introSpec = getModeGuideSpec('intro');
+    if (introSpec) guideToTarget(introSpec.selector, { spotlight: introSpec.spotlight });
   } else {
     isOpen = false;
     currentMode = 'hub';
     currentEmote = 'idle';
     customMessage = null;
   }
+  lastGuidedView = snapshot?.activeView || 'subject';
 
   renderGuideDom({ restartTyping: isOpen });
 
@@ -1039,9 +1132,13 @@ export function initFleckshiGuide(nextActions = {}, initialSnapshot = null) {
     if (!initialized || !rootEl?.isConnected) return;
     if (result.available !== spriteStatus.available) {
       spriteStatus = result;
-      const existingPortrait = rootEl.querySelector('.fleckshi-character-dock .fleckshi-portrait');
-      if (existingPortrait) {
-        existingPortrait.outerHTML = renderPortraitHtml();
+      const dockPortrait = rootEl.querySelector('.fleckshi-character-dock .fleckshi-portrait');
+      if (dockPortrait) {
+        dockPortrait.outerHTML = renderPortraitHtml('md');
+      }
+      const launcherPortrait = rootEl.querySelector('#fleckshiLauncherBtn .fleckshi-portrait');
+      if (launcherPortrait) {
+        launcherPortrait.outerHTML = renderPortraitHtml('sm');
       }
     }
   });
@@ -1052,9 +1149,13 @@ export function initFleckshiGuide(nextActions = {}, initialSnapshot = null) {
  */
 export function notifyFleckshiAppChange(nextSnapshot) {
   if (!nextSnapshot) return;
+  const prevView = lastGuidedView;
   snapshot = nextSnapshot;
+  const nextView = snapshot?.activeView || 'subject';
+  lastGuidedView = nextView;
+
   if (typeof document !== 'undefined') {
-    document.body.classList.toggle('fleckshi-in-notebook', snapshot?.activeView === 'notebook');
+    document.body.classList.toggle('fleckshi-in-notebook', nextView === 'notebook');
   }
   if (!initialized || !rootEl) return;
 
@@ -1062,10 +1163,20 @@ export function notifyFleckshiAppChange(nextSnapshot) {
   if (dockStateEl) {
     dockStateEl.textContent = formatDockStatus();
   }
+
+  if (isOpen && prevView !== nextView && typeof window !== 'undefined' && window.innerWidth >= 900) {
+    guideToTarget(getViewGuideSelector(nextView), { spotlight: false });
+    const stageEl = rootEl.querySelector('#fleckshiStage');
+    if (stageEl && positionedCoords) {
+      stageEl.classList.add('is-positioned');
+      stageEl.style.left = `${positionedCoords.left}px`;
+      stageEl.style.top = `${positionedCoords.top}px`;
+    }
+  }
 }
 
 /**
- * Programmatically open Fleckshi (e.g., from Help button or Command Palette).
+ * Programmatically open Fleckshi (e.g., from Help button).
  */
 export function openFleckshiHelp({ mode = null, nearPointer = false, source = 'api' } = {}) {
   if (!initialized) return;
@@ -1087,13 +1198,18 @@ export function openFleckshiHelp({ mode = null, nearPointer = false, source = 'a
     Date.now() - lastExternalPointer.time < 5000
   ) {
     positionedCoords = computeClampedStagePos(lastExternalPointer);
-  } else if (source === 'launcher' || source === 'command') {
-    positionedCoords = null;
+  } else {
+    const modeSpec = getModeGuideSpec(currentMode);
+    if (modeSpec) {
+      guideToTarget(modeSpec.selector, { spotlight: modeSpec.spotlight });
+    } else {
+      guideToTarget(getViewGuideSelector(snapshot?.activeView), { spotlight: false });
+    }
   }
 
   renderGuideDom({ restartTyping: true });
 
-  if (source === 'launcher' || source === 'command') {
+  if (source === 'launcher') {
     const focusTarget = rootEl?.querySelector(
       '#fleckshiSubjectInput, .fleckshi-suggest-btn, .fleckshi-btn-primary, #fleckshiDismissBtn'
     );
