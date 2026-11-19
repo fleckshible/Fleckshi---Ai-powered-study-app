@@ -15,9 +15,11 @@ import {
   getActiveApiKey,
   getCachedLiveModels,
   getKeyVaultConfig,
+  isKeyOnboardingDismissed,
   removeApiKey,
   saveApiKeyEncrypted,
   saveApiKeyPlain,
+  setKeyOnboardingDismissed,
   unlockApiKey,
   updateModelSettings
 } from '../storage/keyVault.js';
@@ -38,6 +40,7 @@ import { downscaleImageFile } from '../features/imageProcessor.js';
 import { extractPdfContent } from '../features/pdfExtractor.js';
 import {
   formatShortModelName,
+  getModelMeta,
   resolveModelForTask
 } from '../features/modelCatalog.js';
 import {
@@ -253,11 +256,42 @@ let applyLedgerModalOpen = false;
 
 // Key & Multi-Model Routing Modal state
 let keyModalOpen = false;
+let keyOnboardingMode = false;
 let confirmDeleteKey = false;
+let apiKeyDraft = '';
+let apiKeyVisible = false;
+let isTestingKey = false;
+let isSavingKey = false;
+let keyTestAbortCtrl = null;
 let modelSearchQuery = '';
 let keyTestStatus = '';
 let keyTestError = '';
 let pingResultText = '';
+
+// Chat multimodal attachments & draft state
+let pendingChatImages = [];
+let chatAttachmentError = '';
+let chatInputDraft = '';
+
+function abortPendingKeyTest() {
+  if (keyTestAbortCtrl) {
+    keyTestAbortCtrl.abort();
+    keyTestAbortCtrl = null;
+  }
+  isTestingKey = false;
+}
+
+function closeKeySettingsModal({ markOnboardingSeen = true } = {}) {
+  abortPendingKeyTest();
+  isSavingKey = false;
+  keyModalOpen = false;
+  confirmDeleteKey = false;
+  if (keyOnboardingMode && markOnboardingSeen) {
+    setKeyOnboardingDismissed(true);
+  }
+  keyOnboardingMode = false;
+  renderNotebookDom(false);
+}
 
 // Modals & Queues
 let pasteModalOpen = false;
@@ -470,10 +504,13 @@ function renderTopHeader(subject, vaultConfig, liveModels) {
           { size: 12 }
         )}<span class="nb-chip-dot"></span>Queue ${qDone}/${qTot}</button>`
       : '') +
-    `<button type="button" class="nb-model-chip" id="nbOpenKeyModalBtn" title="Gemini API Key, Model Routing, Grounding &amp; Effects">` +
+    `<span class="nb-top-divider" aria-hidden="true"></span>` +
+    `<button type="button" class="nb-model-chip nb-settings-btn${
+      !vaultConfig.unlocked ? ' needs-key' : ''
+    }" id="nbOpenKeyModalBtn" aria-label="Open Notebook AI Settings" title="Notebook AI Settings (API Key, Models &amp; Preferences)">` +
+    `<svg class="nb-settings-gear" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>` +
     `<span class="nb-chip-dot${vaultConfig.unlocked ? '' : ' locked'}"></span>` +
-    renderAnimatedIcon('ctrl:model', { size: 13 }) +
-    `<span>${escapeHtml(aiStatusText)}</span>` +
+    `<span>${escapeHtml(vaultConfig.unlocked ? aiStatusText : 'AI Settings')}</span>` +
     `</button>` +
     `</div>` +
     `</div>` +
@@ -669,7 +706,9 @@ function renderNotebookDom(animateEntrance = false) {
       vaultConfig,
       liveModels,
       citationDrawerChunkId,
-      chatDrawerOpen
+      chatDrawerOpen,
+      pendingChatImages,
+      chatAttachmentError
     });
   } else if (topTab === 'plan') {
     const planScope = resolveActiveScopeDetails(activeNotebook, subject, 'revisionPlan');
@@ -740,7 +779,12 @@ function renderNotebookDom(animateEntrance = false) {
       keyTestError,
       pingResultText,
       defaultGroundingMode: activeNotebook.groundingMode || 'sources',
-      confirmDeleteKey
+      confirmDeleteKey,
+      apiKeyDraft,
+      apiKeyVisible,
+      isTestingKey,
+      isSavingKey,
+      isOnboarding: keyOnboardingMode
     }) +
     renderApplyLedgerModal({
       open: applyLedgerModalOpen,
@@ -1213,15 +1257,88 @@ async function runOcrOnHead() {
   }
 }
 
-async function handleChatSubmit(question, allChunks) {
-  if (!question || isStreaming || !activeNotebook) return;
+async function addPendingChatImageFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  chatAttachmentError = '';
+
+  for (const file of files) {
+    if (pendingChatImages.length >= 4) {
+      chatAttachmentError = 'Maximum 4 images per chat message.';
+      break;
+    }
+    const lower = String(file.name || '').toLowerCase();
+    const isValidImg =
+      ['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+      /\.(png|jpe?g|webp)$/.test(lower);
+    if (!isValidImg) {
+      chatAttachmentError = `Unsupported format (${file.name || 'file'}). Use PNG, JPG, or WebP.`;
+      continue;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      chatAttachmentError = `"${file.name || 'Image'}" exceeds 12 MB limit.`;
+      continue;
+    }
+    try {
+      const processed = await downscaleImageFile(file, 1600, 0.85);
+      pendingChatImages.push({
+        id: `cimg_${uid()}`,
+        name: file.name || `image_${pendingChatImages.length + 1}.png`,
+        mimeType: processed.mimeType,
+        base64Data: processed.base64Data,
+        previewUrl: `data:${processed.mimeType};base64,${processed.base64Data}`
+      });
+    } catch (err) {
+      chatAttachmentError = err?.message || 'Unable to process attached image.';
+    }
+  }
+  renderNotebookDom(false);
+}
+
+async function handleChatSubmit(question, allChunks, images = []) {
+  const cleanQuestion = String(question || '').trim();
+  const validImages = Array.isArray(images) ? [...images] : [];
+  if ((!cleanQuestion && !validImages.length) || isStreaming || !activeNotebook) return;
+
+  const vaultCfg = getKeyVaultConfig();
+  if (!vaultCfg.unlocked) {
+    chatInputDraft = cleanQuestion;
+    keyModalOpen = true;
+    keyOnboardingMode = !vaultCfg.hasStoredKey;
+    keyTestError = 'Set up or unlock your Gemini API key before sending a chat message.';
+    renderNotebookDom(false);
+    return;
+  }
+
+  const liveModels = getCachedLiveModels();
+  let usedModel = resolveModelForTask('chat', vaultCfg, liveModels);
+  if (validImages.length && !getModelMeta(usedModel, liveModels).supportsImages) {
+    chatInputDraft = cleanQuestion;
+    chatAttachmentError = `${formatShortModelName(
+      usedModel,
+      liveModels
+    )} does not support images. Switch to a vision model or remove the attachment.`;
+    renderNotebookDom(false);
+    return;
+  }
+
   const state = getState();
   const subject = state.subjects.find((s) => s.id === state.activeSubjectId);
+  const effectiveQuestion =
+    cleanQuestion || `Please inspect and explain the attached image(s): ${validImages.map((i) => i.name).join(', ')}`;
+
+  const attachmentNote = validImages.length
+    ? `\n\n_Attached: ${validImages.map((i) => i.name).join(', ')}_`
+    : '';
+
+  chatInputDraft = '';
+  pendingChatImages = [];
+  chatAttachmentError = '';
 
   activeNotebook.chatHistory.push({
     id: `msg_${uid()}`,
     role: 'user',
-    text: question,
+    text: `${effectiveQuestion}${attachmentNote}`,
     createdAt: new Date().toISOString()
   });
   await saveNotebook(activeNotebook);
@@ -1244,7 +1361,6 @@ async function handleChatSubmit(question, allChunks) {
   stopCursorTimer = startStreamingTimers(cursorEl, null);
   scrollBox.scrollTop = scrollBox.scrollHeight;
 
-  let usedModel = resolveModelForTask('chat', getKeyVaultConfig(), getCachedLiveModels());
   const brain = activeNotebook.syllabusBrain || buildSyllabusBrainFromSubject(subject);
   const syllabusContext = brain
     ? (brain.chapters || [])
@@ -1259,11 +1375,12 @@ async function handleChatSubmit(question, allChunks) {
 
   try {
     const finalText = await streamGroundedChat({
-      question,
+      question: effectiveQuestion,
       chunks: allChunks,
       chatHistory: activeNotebook.chatHistory,
       groundingMode: activeNotebook.groundingMode,
       syllabusContext,
+      images: validImages,
       signal: activeAbortCtrl.signal,
       onModelUsed: ({ modelUsed }) => {
         if (modelUsed) usedModel = modelUsed;
@@ -1779,7 +1896,11 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
   });
 
   document.getElementById('nbOpenKeyModalBtn')?.addEventListener('click', () => {
+    splitMenuOpen = false;
+    addSourceMenuOpen = false;
+    scopeSheetOpen = false;
     keyModalOpen = true;
+    keyOnboardingMode = !getKeyVaultConfig().hasStoredKey;
     confirmDeleteKey = false;
     keyTestError = '';
     keyTestStatus = '';
@@ -2279,14 +2400,75 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
     citationDrawerChunkId = null;
     renderNotebookDom(false);
   });
-  document.getElementById('nbChatForm')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const inp = document.getElementById('nbChatInput');
-    const q = inp?.value.trim();
-    if (!q) return;
-    inp.value = '';
-    handleChatSubmit(q, allChunks);
+  const chatInputEl = document.getElementById('nbChatInput');
+  if (chatInputEl) {
+    if (chatInputDraft && !chatInputEl.value) {
+      chatInputEl.value = chatInputDraft;
+    }
+    chatInputEl.addEventListener('input', () => {
+      chatInputDraft = chatInputEl.value;
+    });
+    chatInputEl.addEventListener('paste', (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imgFiles = items
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      if (imgFiles.length) {
+        e.preventDefault();
+        addPendingChatImageFiles(imgFiles);
+      }
+    });
+  }
+  document.getElementById('nbChatAttachBtn')?.addEventListener('click', () => {
+    document.getElementById('nbChatImageInput')?.click();
   });
+  document.getElementById('nbChatImageInput')?.addEventListener('change', (e) => {
+    addPendingChatImageFiles(e.target.files);
+    e.target.value = '';
+  });
+  document.querySelectorAll('[data-nb-chat-remove-img]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-nb-chat-remove-img'));
+      pendingChatImages = pendingChatImages.filter((_, i) => i !== idx);
+      chatAttachmentError = '';
+      renderNotebookDom(false);
+    });
+  });
+  document.getElementById('nbChatSwitchVisionBtn')?.addEventListener('click', () => {
+    updateModelSettings({
+      useSingleModel: false,
+      taskRouting: { ...getKeyVaultConfig().taskRouting, chat: DEFAULT_GEMINI_MODEL }
+    });
+    chatAttachmentError = '';
+    renderNotebookDom(false);
+  });
+  const chatFormEl = document.getElementById('nbChatForm');
+  if (chatFormEl) {
+    chatFormEl.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+        chatFormEl.classList.add('is-drag-over');
+      }
+    });
+    chatFormEl.addEventListener('dragleave', () => {
+      chatFormEl.classList.remove('is-drag-over');
+    });
+    chatFormEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      chatFormEl.classList.remove('is-drag-over');
+      if (e.dataTransfer?.files?.length) {
+        addPendingChatImageFiles(e.dataTransfer.files);
+      }
+    });
+    chatFormEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const inp = document.getElementById('nbChatInput');
+      const q = inp?.value.trim() || '';
+      if (!q && !pendingChatImages.length) return;
+      handleChatSubmit(q, allChunks, pendingChatImages);
+    });
+  }
   document.getElementById('nbCancelStreamBtn')?.addEventListener('click', () => {
     activeAbortCtrl?.abort();
   });
@@ -2694,15 +2876,24 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
   });
 
   // KEY VAULT & ROUTING MODAL
+  document.getElementById('nbKeyModalBackdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'nbKeyModalBackdrop') {
+      closeKeySettingsModal();
+    }
+  });
   document.getElementById('nbCloseKeyModalBtn')?.addEventListener('click', () => {
-    keyModalOpen = false;
-    confirmDeleteKey = false;
-    renderNotebookDom(false);
+    closeKeySettingsModal();
   });
   document.getElementById('nbCloseKeyModalFooterBtn')?.addEventListener('click', () => {
-    keyModalOpen = false;
-    confirmDeleteKey = false;
+    closeKeySettingsModal();
+  });
+  document.getElementById('nbApiKeyInput')?.addEventListener('input', (e) => {
+    apiKeyDraft = e.target.value;
+  });
+  document.getElementById('nbToggleKeyVisibilityBtn')?.addEventListener('click', () => {
+    apiKeyVisible = !apiKeyVisible;
     renderNotebookDom(false);
+    document.getElementById('nbApiKeyInput')?.focus();
   });
   document.getElementById('nbUsePassphraseCb')?.addEventListener('change', (e) => {
     const wrap = document.getElementById('nbPassphraseWrap');
@@ -2713,26 +2904,87 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
       await unlockApiKey(document.getElementById('nbUnlockPassInput')?.value || '');
       keyTestStatus = 'Key unlocked for this browser session.';
       keyTestError = '';
-      await ensureLiveModelsLoaded();
+      ensureLiveModelsLoaded().then((models) => {
+        if (models && keyModalOpen) renderNotebookDom(false);
+      });
     } catch (err) {
       keyTestError = err.message;
     }
     renderNotebookDom(false);
   });
-  document.getElementById('nbTestKeyBtn')?.addEventListener('click', async () => {
-    const typedKey = document.getElementById('nbApiKeyInput')?.value.trim() || getActiveApiKey();
+  document.getElementById('nbSaveKeyOnlyBtn')?.addEventListener('click', async () => {
+    if (isSavingKey) return;
+    const typedKey = (document.getElementById('nbApiKeyInput')?.value ?? apiKeyDraft).trim();
+    const usePass = Boolean(document.getElementById('nbUsePassphraseCb')?.checked);
+    const pass = document.getElementById('nbKeyPassphraseInput')?.value || '';
+    if (!typedKey) {
+      keyTestError = getKeyVaultConfig().hasStoredKey
+        ? 'Enter a new API key above to replace your stored key.'
+        : 'Enter a Gemini API key first.';
+      keyTestStatus = '';
+      renderNotebookDom(false);
+      return;
+    }
+    isSavingKey = true;
     keyTestError = '';
-    keyTestStatus = 'Testing key & discovering live generateContent models...';
+    keyTestStatus = 'Saving…';
     renderNotebookDom(false);
     try {
-      const res = await testApiKeyAndListModels(typedKey);
-      updateModelSettings({ model: res.recommendedModel });
-      keyTestStatus = `Connected! Discovered ${res.models.length} generateContent models. Default: ${res.recommendedModel}`;
+      if (usePass) {
+        await saveApiKeyEncrypted(typedKey, pass);
+      } else {
+        saveApiKeyPlain(typedKey);
+      }
+      if (!getKeyVaultConfig().hasStoredKey) {
+        throw new Error('Key did not persist to browser storage.');
+      }
+      setKeyOnboardingDismissed(true);
+      keyOnboardingMode = false;
+      apiKeyDraft = '';
+      keyTestStatus = 'Saved API key locally.';
+      keyTestError = '';
     } catch (err) {
-      keyTestError = err.message;
+      keyTestError = err?.message || 'Unable to save API key.';
       keyTestStatus = '';
+    } finally {
+      isSavingKey = false;
+      renderNotebookDom(false);
     }
+  });
+  document.getElementById('nbTestKeyBtn')?.addEventListener('click', async () => {
+    if (isTestingKey) return;
+    const typedKey = (document.getElementById('nbApiKeyInput')?.value ?? apiKeyDraft).trim();
+    apiKeyDraft = typedKey;
+    const keyToCheck = typedKey || getActiveApiKey();
+    if (!keyToCheck) {
+      keyTestError = 'Enter a Gemini API key first.';
+      keyTestStatus = '';
+      renderNotebookDom(false);
+      return;
+    }
+    abortPendingKeyTest();
+    keyTestAbortCtrl = new AbortController();
+    isTestingKey = true;
+    keyTestError = '';
+    keyTestStatus = 'Checking key…';
     renderNotebookDom(false);
+    try {
+      const res = await testApiKeyAndListModels(keyToCheck, { signal: keyTestAbortCtrl.signal });
+      updateModelSettings({ model: res.recommendedModel });
+      keyTestStatus = `Valid key · Discovered ${res.models.length} models (default: ${res.recommendedModel}).`;
+      keyTestError = '';
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        keyTestError = err?.message || 'Unable to validate API key.';
+        keyTestStatus = '';
+      }
+    } finally {
+      isTestingKey = false;
+      keyTestAbortCtrl = null;
+      if (keyModalOpen) {
+        renderNotebookDom(false);
+      }
+    }
   });
   document.getElementById('nbModalModelSearch')?.addEventListener('input', (e) => {
     modelSearchQuery = e.target.value;
@@ -2792,8 +3044,9 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
     renderNotebookDom(false);
   });
   document.getElementById('nbSaveKeyBtn')?.addEventListener('click', async () => {
-    const typedKey = document.getElementById('nbApiKeyInput')?.value.trim();
-    const usePass = document.getElementById('nbUsePassphraseCb')?.checked;
+    if (isSavingKey) return;
+    const typedKey = (document.getElementById('nbApiKeyInput')?.value ?? apiKeyDraft).trim();
+    const usePass = Boolean(document.getElementById('nbUsePassphraseCb')?.checked);
     const pass = document.getElementById('nbKeyPassphraseInput')?.value || '';
     const customModel = document.getElementById('nbCustomModelInput')?.value.trim() || '';
     const useSingleModel = Boolean(document.getElementById('nbUseSingleModelCb')?.checked);
@@ -2816,6 +3069,11 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
       taskRouting
     };
 
+    isSavingKey = true;
+    keyTestError = '';
+    keyTestStatus = 'Saving…';
+    renderNotebookDom(false);
+
     try {
       if (typedKey) {
         if (usePass) {
@@ -2823,19 +3081,26 @@ function attachNotebookEvents(subject, allChunks, vaultConfig, liveModels) {
         } else {
           saveApiKeyPlain(typedKey, settingsPayload);
         }
-        await ensureLiveModelsLoaded();
+        if (!getKeyVaultConfig().hasStoredKey) {
+          throw new Error('API key could not be persisted.');
+        }
+        apiKeyDraft = '';
+        setKeyOnboardingDismissed(true);
+        keyOnboardingMode = false;
       } else {
         updateModelSettings(settingsPayload);
       }
       animateKeyLockedMorph(document.getElementById('nbKeyModalBackdrop'));
-      keyTestStatus = 'Saved key & routing.';
+      keyTestStatus = 'Saved.';
       keyTestError = '';
+      isSavingKey = false;
       setTimeout(() => {
-        keyModalOpen = false;
-        renderNotebookDom(false);
-      }, 280);
+        closeKeySettingsModal();
+      }, 220);
     } catch (err) {
-      keyTestError = err.message;
+      isSavingKey = false;
+      keyTestError = err?.message || 'Failed to save settings.';
+      keyTestStatus = '';
       renderNotebookDom(false);
     }
   });
@@ -2967,6 +3232,15 @@ export async function mountNotebookView(subjectId) {
 
   const shouldAnimate = lastRenderedSubjectId !== subjectId;
   lastRenderedSubjectId = subjectId;
+
+  const vaultCfg = getKeyVaultConfig();
+  if (!vaultCfg.hasStoredKey && !isKeyOnboardingDismissed() && !keyModalOpen) {
+    keyModalOpen = true;
+    keyOnboardingMode = true;
+    keyTestError = '';
+    keyTestStatus = '';
+  }
+
   renderNotebookDom(shouldAnimate);
 
   // Silently fetch & cache live models on load if an unlocked API key exists

@@ -6,7 +6,32 @@ import {
 
 export const KEY_VAULT_STORAGE_KEY = 'revision-ledger-key-vault-v1';
 export const LIVE_MODELS_SESSION_KEY = 'revision-ledger-live-models-v1';
+export const KEY_ONBOARDING_DISMISSED_KEY = 'revision-ledger-key-onboarding-dismissed-v1';
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+export function isKeyOnboardingDismissed() {
+  if (hasLocalStorage()) {
+    try {
+      return localStorage.getItem(KEY_ONBOARDING_DISMISSED_KEY) === '1';
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}
+
+export function setKeyOnboardingDismissed(dismissed = true) {
+  if (!hasLocalStorage()) return;
+  try {
+    if (dismissed) {
+      localStorage.setItem(KEY_ONBOARDING_DISMISSED_KEY, '1');
+    } else {
+      localStorage.removeItem(KEY_ONBOARDING_DISMISSED_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 let sessionUnlockedKey = null;
 let memoryVaultFallback = null;
@@ -85,8 +110,12 @@ function writeRawVault(record) {
   if (!hasLocalStorage()) return;
   try {
     localStorage.setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(record));
-  } catch {
-    // ignore storage quota errors
+  } catch (err) {
+    throw new Error(
+      err?.name === 'QuotaExceededError'
+        ? 'Browser storage is full. Unable to save API key.'
+        : 'Unable to persist API key in browser storage.'
+    );
   }
 }
 

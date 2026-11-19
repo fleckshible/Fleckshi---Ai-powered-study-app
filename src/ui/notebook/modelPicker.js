@@ -176,7 +176,12 @@ export function renderKeyAndRoutingModal({
   keyTestError,
   pingResultText,
   defaultGroundingMode = 'sources',
-  confirmDeleteKey = false
+  confirmDeleteKey = false,
+  apiKeyDraft = '',
+  apiKeyVisible = false,
+  isTestingKey = false,
+  isSavingKey = false,
+  isOnboarding = false
 }) {
   if (!open) return '';
 
@@ -188,7 +193,7 @@ export function renderKeyAndRoutingModal({
   const keyStateLabel = vaultConfig.encrypted && !vaultConfig.unlocked
     ? 'Encrypted (Locked)'
     : vaultConfig.hasStoredKey
-      ? 'Stored in browser'
+      ? 'Key stored'
       : 'No key stored';
 
   const taskPickersHtml = Object.entries(TASK_ROUTING_LABELS)
@@ -214,17 +219,26 @@ export function renderKeyAndRoutingModal({
     `<div class="modal-backdrop" id="nbKeyModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="nbKeyModalTitle">` +
     `<div class="modal-card nb-modal-lg u-stack-md">` +
     `<div class="modal-header">` +
-    `<h2 class="serif" id="nbKeyModalTitle">AI Settings<span class="title-dot"></span></h2>` +
+    `<h2 class="serif" id="nbKeyModalTitle">${
+      isOnboarding ? 'Connect Gemini AI to Notebook' : 'AI Settings'
+    }<span class="title-dot"></span></h2>` +
     `<button type="button" class="topic-del" id="nbCloseKeyModalBtn" aria-label="Close AI Settings">&times;</button>` +
     `</div>` +
+
+    (isOnboarding
+      ? `<div class="nb-settings-card nb-onboarding-callout u-stack-xs">` +
+        `<strong style="font-size:13.5px;">Welcome to Fleckshi Study Notebook</strong>` +
+        `<p class="u-text-sm" style="margin:0;">To generate study notes, flashcards, quizzes, mind maps, or transcribe syllabus photos, connect your own free or paid Gemini API key. You can skip this for now and still browse or write personal notes.</p>` +
+        `</div>`
+      : '') +
 
     /* Card 1: API Key */
     `<section class="nb-settings-card u-stack-sm" aria-labelledby="nbSettingsKeyHeading">` +
     `<div class="u-row-between">` +
     `<strong id="nbSettingsKeyHeading" style="font-size:14px;">1. API Key</strong>` +
-    `<span class="nb-badge-mini">${escapeHtml(keyStateLabel)}</span>` +
+    `<span class="nb-badge-mini${vaultConfig.hasStoredKey ? ' u-text-mint' : ''}">${escapeHtml(keyStateLabel)}</span>` +
     `</div>` +
-    `<p class="u-text-sm" style="margin:0;">Get a key from <span class="mono">aistudio.google.com/apikey</span>. Stored locally in your browser (never logged or exported).</p>` +
+    `<p class="u-text-sm" style="margin:0;">Create or copy a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="nb-ext-link">https://aistudio.google.com/apikey</a>. Saved locally in browser <span class="mono">localStorage</span> (or encrypted at rest with your passphrase) and never logged, packaged, or exported.</p>` +
     (vaultConfig.encrypted && !vaultConfig.unlocked
       ? `<div class="u-stack-sm nb-coverage-card">` +
         `<label for="nbUnlockPassInput" class="ui-label">Unlock encrypted key</label>` +
@@ -235,12 +249,26 @@ export function renderKeyAndRoutingModal({
       : '') +
     `<div class="u-row-wrap" style="align-items:flex-end;">` +
     `<div class="ui-field u-flex-1">` +
-    `<label for="nbApiKeyInput" class="ui-label">Gemini API Key ${vaultConfig.hasStoredKey ? '(leave blank to keep stored key)' : ''}</label>` +
-    `<input type="password" id="nbApiKeyInput" class="ui-input" placeholder="${
+    `<label for="nbApiKeyInput" class="ui-label">Gemini API Key ${vaultConfig.hasStoredKey ? '(stored — enter new key to replace)' : ''}</label>` +
+    `<div class="u-row-wrap" style="flex-wrap:nowrap; gap:6px;">` +
+    `<input type="${apiKeyVisible ? 'text' : 'password'}" id="nbApiKeyInput" class="ui-input u-flex-1" value="${escapeHtml(
+      apiKeyDraft
+    )}" placeholder="${
       vaultConfig.hasStoredKey ? '•••••••••••• (Key stored)' : 'AIza...'
-    }">` +
+    }" autocomplete="off" spellcheck="false">` +
+    `<button type="button" class="btn-secondary btn-sm" id="nbToggleKeyVisibilityBtn" aria-pressed="${Boolean(
+      apiKeyVisible
+    )}" aria-label="${apiKeyVisible ? 'Hide API key' : 'Show API key'}">${
+      apiKeyVisible ? 'Hide' : 'Show'
+    }</button>` +
     `</div>` +
-    `<button type="button" class="btn-secondary btn-md" id="nbTestKeyBtn">Test &amp; Refresh</button>` +
+    `</div>` +
+    `<button type="button" class="btn-primary btn-md" id="nbSaveKeyOnlyBtn" ${
+      isSavingKey ? 'disabled' : ''
+    }>${isSavingKey ? 'Saving…' : 'Save Key'}</button>` +
+    `<button type="button" class="btn-secondary btn-md" id="nbTestKeyBtn" ${
+      isTestingKey ? 'disabled' : ''
+    }>${isTestingKey ? 'Checking key…' : 'Test Key'}</button>` +
     `</div>` +
     `<div class="u-row-between u-row-wrap">` +
     `<label class="u-check-label">` +
@@ -372,8 +400,12 @@ export function renderKeyAndRoutingModal({
     `</details>` +
 
     `<div class="modal-actions u-row-end">` +
-    `<button type="button" class="btn-secondary btn-md" id="nbCloseKeyModalFooterBtn">Close</button>` +
-    `<button type="button" class="btn-primary btn-md" id="nbSaveKeyBtn">Save Settings</button>` +
+    `<button type="button" class="btn-secondary btn-md" id="nbCloseKeyModalFooterBtn">${
+      isOnboarding ? 'Skip for now' : 'Close'
+    }</button>` +
+    `<button type="button" class="btn-primary btn-md" id="nbSaveKeyBtn" ${
+      isSavingKey ? 'disabled' : ''
+    }>${isSavingKey ? 'Saving…' : 'Save Settings'}</button>` +
     `</div>` +
     `</div>` +
     `</div>`

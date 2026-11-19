@@ -5,7 +5,7 @@ import {
   makeArtifactKey,
   migrateLegacyNotebookTab
 } from '../../storage/notebookStore.js';
-import { formatShortModelName, resolveModelForTask } from '../../features/modelCatalog.js';
+import { formatShortModelName, getModelMeta, resolveModelForTask } from '../../features/modelCatalog.js';
 import {
   buildSyllabusBrainFromSubject,
   getTaskKeyForTool
@@ -373,10 +373,14 @@ export function renderChatWorkspace({
   vaultConfig,
   liveModels,
   citationDrawerChunkId,
-  chatDrawerOpen = false
+  chatDrawerOpen = false,
+  pendingChatImages = [],
+  chatAttachmentError = ''
 }) {
   const routedModel = resolveModelForTask('chat', vaultConfig, liveModels);
+  const routedMeta = getModelMeta(routedModel, liveModels);
   const shortChatModel = formatShortModelName(routedModel, liveModels);
+  const needsVisionSwitch = pendingChatImages.length > 0 && !routedMeta.supportsImages;
   const drawerChunk = citationDrawerChunkId
     ? allChunks.find((c) => c.id === citationDrawerChunkId) || null
     : null;
@@ -507,8 +511,41 @@ export function renderChatWorkspace({
     `</div>` +
     `<form class="nb-chat-form nb-reading-col" id="nbChatForm">` +
     renderGroundingToggle(notebook.groundingMode) +
+    (pendingChatImages.length
+      ? `<div class="nb-chat-attachments" id="nbChatAttachments" aria-label="Attached images">` +
+        pendingChatImages
+          .map(
+            (img, idx) =>
+              `<div class="nb-chat-attach-chip">` +
+              `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.name)}" class="nb-chat-attach-thumb">` +
+              `<span class="nb-chat-attach-name">${escapeHtml(img.name)}</span>` +
+              `<button type="button" class="topic-del" data-nb-chat-remove-img="${idx}" aria-label="Remove ${escapeHtml(
+                img.name
+              )}">&times;</button>` +
+              `</div>`
+          )
+          .join('') +
+        `</div>`
+      : '') +
+    (needsVisionSwitch
+      ? `<div class="nb-danger-confirm u-row-between u-row-wrap" role="alert">` +
+        `<span class="u-text-sm"><strong>${escapeHtml(
+          shortChatModel
+        )}</strong> does not support image attachments. Switch to a vision-capable model or remove the image.</span>` +
+        `<button type="button" class="btn-secondary btn-sm" id="nbChatSwitchVisionBtn">Switch to Gemini 3.8 Flash</button>` +
+        `</div>`
+      : '') +
+    (chatAttachmentError
+      ? `<div class="u-text-danger" role="alert" style="font-size:12.5px;">${escapeHtml(
+          chatAttachmentError
+        )}</div>`
+      : '') +
     `<div class="u-row-wrap u-w-full" style="flex-wrap:nowrap;">` +
-    `<input type="text" id="nbChatInput" placeholder="Ask about your sources or syllabus..." autocomplete="off" aria-label="Chat message">` +
+    `<input type="file" id="nbChatImageInput" accept="image/png,image/jpeg,image/webp" multiple class="nb-hidden-input" aria-hidden="true">` +
+    `<button type="button" class="btn-secondary btn-md nb-chat-attach-btn" id="nbChatAttachBtn" title="Attach PNG, JPG, or WebP images (or Ctrl+V paste)" aria-label="Attach images (PNG, JPG, WebP)">` +
+    `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>` +
+    `</button>` +
+    `<input type="text" id="nbChatInput" placeholder="Ask about your sources, or paste/attach an image..." autocomplete="off" aria-label="Chat message">` +
     `<button type="submit" class="btn-primary btn-md" id="nbSendBtn">` +
     `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">` +
     `<path id="nbSendGlyph" d="M 22 2 L 11 13 M 22 2 L 15 22 L 11 13 L 2 9 Z"/>` +

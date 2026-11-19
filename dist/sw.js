@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fleckshi-v5';
+const CACHE_NAME = 'fleckshi-v6';
 const CORE_ASSETS = [
   './',
   './index.html',

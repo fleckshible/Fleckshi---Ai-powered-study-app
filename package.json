@@ -1,7 +1,8 @@
 {
   "name": "fleckshi",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Fleckshi — Your study space, guided.",
+  "author": "Fleckshi",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -10,8 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "desktop:dev": "node scripts/desktop-dev.mjs",
-    "desktop:pack": "vite build && electron-builder --win --x64 --dir",
-    "desktop:build": "vite build && electron-builder --win nsis --x64 && electron-builder --win portable --x64 --prepackaged dist-desktop/win-unpacked"
+    "desktop:pack": "node scripts/desktop-build.mjs --pack",
+    "desktop:build": "node scripts/desktop-build.mjs"
   },
   "build": {
     "appId": "com.fleckshi.app",

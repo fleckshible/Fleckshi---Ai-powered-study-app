@@ -1173,3 +1173,43 @@ test('Notebook Focus Mode reading layout, discoverable button, reduced-motion gu
   assert.ok(fleckshiSrc.includes('export function dismissFleckshiFocusSuggestion'));
   assert.ok(fleckshiSrc.includes('data-fleckshi-action="enter-focus-mode"'));
 });
+
+test('API key persistence, first-open onboarding, Ledger image import, Chat image attachments, topic button layout, and Help anchoring', async () => {
+  const { renderImportModal } = await import('../src/ui/importModal.js');
+  const { renderChatWorkspace } = await import('../src/ui/notebook/tabWorkspaces.js');
+
+  const compCss = fs.readFileSync(new URL('../src/styles/components.css', import.meta.url), 'utf8');
+  const pipelineBlock = compCss.slice(compCss.indexOf('.pipeline-node {'), compCss.indexOf('.pipeline-node:hover'));
+  assert.ok(pipelineBlock.includes('width: auto'));
+  assert.ok(pipelineBlock.includes('white-space: nowrap'));
+
+  const fleckshiSrc = fs.readFileSync(new URL('../src/ui/fleckshiGuide.js', import.meta.url), 'utf8');
+  assert.ok(fleckshiSrc.includes("if (source === 'launcher')"));
+
+  const importHtml = renderImportModal(['Topic A'], 'Topic A', {
+    images: [{ name: 'notes.png', previewUrl: 'data:image/png;base64,AA', status: 'pending' }],
+    hasApiKey: false,
+    skippedDuplicates: 1
+  });
+  assert.ok(importHtml.includes('id="bulkImportImgBtn"'));
+  assert.ok(importHtml.includes('id="bulkSetupApiKeyBtn"'));
+  assert.ok(importHtml.includes('1 duplicate(s) skipped'));
+
+  const chatHtml = renderChatWorkspace({
+    notebook: { chatHistory: [], groundingMode: 'sources' },
+    allChunks: [],
+    vaultConfig: { model: 'gemma-4-31b-it', taskRouting: { chat: 'gemma-4-31b-it' } },
+    liveModels: null,
+    pendingChatImages: [{ name: 'diagram.png', previewUrl: 'data:image/png;base64,AA' }]
+  });
+  assert.ok(chatHtml.includes('id="nbChatAttachBtn"'));
+  assert.ok(chatHtml.includes('id="nbChatSwitchVisionBtn"'));
+  assert.ok(chatHtml.includes('diagram.png'));
+
+  const nbViewSrc = fs.readFileSync(new URL('../src/ui/notebookView.js', import.meta.url), 'utf8');
+  const modelPickerSrc = fs.readFileSync(new URL('../src/ui/notebook/modelPicker.js', import.meta.url), 'utf8');
+  assert.ok(modelPickerSrc.includes('id="nbSaveKeyOnlyBtn"'));
+  assert.ok(modelPickerSrc.includes('id="nbTestKeyBtn"'));
+  assert.ok(nbViewSrc.includes('nb-settings-btn'));
+  assert.ok(nbViewSrc.includes('isKeyOnboardingDismissed'));
+});

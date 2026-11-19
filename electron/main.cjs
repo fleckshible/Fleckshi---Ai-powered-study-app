@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, session, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -88,6 +88,10 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write']);
+      callback(allowed.has(permission));
+    });
     mainWindow = createMainWindow();
 
     app.on('activate', () => {

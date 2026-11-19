@@ -315,10 +315,15 @@ export function renderSubjectView(
     weakSpotsHtml +
     `<form class="add-topic-form topic-composer-row" id="addTopicForm">` +
     `<select class="chapter-select" id="topicChapterSelect" aria-label="Chapter or tag">${chapterOptions}</select>` +
-    `<input type="text" id="newTopicInput" placeholder="Add topic (or paste multi-line syllabus)..." autocomplete="off" aria-label="New topic name">` +
+    `<input type="text" id="newTopicInput" placeholder="Add topic (or paste text / image)..." autocomplete="off" aria-label="New topic name">` +
     `<button type="submit" class="btn-primary btn-md">${renderAnimatedIcon('action:plus', {
       size: 18
     })}<span>Add Topic</span></button>` +
+    `<input type="file" id="ledgerQuickImageInput" accept="image/png,image/jpeg,image/webp" multiple style="display:none;" aria-hidden="true">` +
+    `<button type="button" class="btn-secondary btn-md" id="openQuickImageImportBtn" title="Extract topics from PNG, JPG, or WebP syllabus photos">${renderAnimatedIcon(
+      'sources:camera',
+      { size: 18 }
+    )}<span>From Image</span></button>` +
     `<button type="button" class="btn-secondary btn-md" id="openBulkImportBtn">${renderAnimatedIcon(
       'sources:upload',
       { size: 18 }

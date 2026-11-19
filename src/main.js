@@ -41,6 +41,7 @@ import { renderFocusView } from './ui/focusView.js';
 import { renderPomodoroWidget, renderChronoDialSvg, renderDigitSpans } from './ui/pomodoroWidget.js';
 import { renderImportModal } from './ui/importModal.js';
 import { renderBackupModal } from './ui/backupModal.js';
+import { getKeyVaultConfig } from './storage/keyVault.js';
 
 import {
   animateMarkSpring,
@@ -90,8 +91,132 @@ let modalState = {
   importOpen: false,
   importRawText: '',
   importPreview: null,
+  importImages: [],
+  importScanning: false,
+  importOcrError: '',
+  importSkippedDuplicates: 0,
   backupOpen: false
 };
+
+function renderImportModalFromState() {
+  return renderImportModal(modalState.importPreview, modalState.importRawText, {
+    images: modalState.importImages,
+    scanning: modalState.importScanning,
+    ocrError: modalState.importOcrError,
+    hasApiKey: Boolean(getKeyVaultConfig().unlocked),
+    skippedDuplicates: modalState.importSkippedDuplicates
+  });
+}
+
+function dedupePreviewAgainstSubject(parsedTopics) {
+  const subj = getState().subjects.find((s) => s.id === getState().activeSubjectId);
+  const existing = new Set((subj?.topics || []).map((t) => t.name.trim().toLowerCase()));
+  const seen = new Set();
+  const unique = [];
+  let skipped = 0;
+  for (const rawName of parsedTopics || []) {
+    const clean = String(rawName || '').replace(/\s+/g, ' ').trim();
+    const key = clean.toLowerCase();
+    if (!clean) continue;
+    if (existing.has(key) || seen.has(key)) {
+      skipped++;
+      continue;
+    }
+    seen.add(key);
+    unique.push(clean);
+  }
+  return { unique, skipped };
+}
+
+async function addBulkImportImages(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  modalState.importOcrError = '';
+  const { downscaleImageFile } = await import('./features/imageProcessor.js');
+  for (const file of files) {
+    if (modalState.importImages.length >= 6) {
+      modalState.importOcrError = 'Maximum 6 syllabus images per import.';
+      break;
+    }
+    const lower = String(file.name || '').toLowerCase();
+    const valid =
+      ['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+      /\.(png|jpe?g|webp)$/.test(lower);
+    if (!valid) {
+      modalState.importOcrError = `Unsupported image format (${file.name || 'file'}). Use PNG, JPG, or WebP.`;
+      continue;
+    }
+    try {
+      const processed = await downscaleImageFile(file, 1600, 0.85);
+      modalState.importImages.push({
+        id: uid(),
+        name: file.name || `syllabus_${modalState.importImages.length + 1}.png`,
+        mimeType: processed.mimeType,
+        base64Data: processed.base64Data,
+        previewUrl: `data:${processed.mimeType};base64,${processed.base64Data}`,
+        status: 'pending',
+        error: ''
+      });
+    } catch (err) {
+      modalState.importOcrError = err?.message || 'Could not process image.';
+    }
+  }
+  renderModalOnly();
+}
+
+async function runBulkImageOcr(singleIndex = null) {
+  if (modalState.importScanning || !modalState.importImages.length) return;
+  if (!getKeyVaultConfig().unlocked) {
+    modalState.importOcrError = 'Set up or unlock your Gemini API key first to extract topics from images.';
+    renderModalOnly();
+    return;
+  }
+
+  modalState.importScanning = true;
+  modalState.importOcrError = '';
+  renderModalOnly();
+
+  try {
+    const { transcribeImageWithGemini } = await import('./features/notebookGenerators.js');
+    const indices =
+      singleIndex !== null
+        ? [singleIndex]
+        : modalState.importImages.map((_, i) => i).filter((i) => modalState.importImages[i].status !== 'done');
+
+    const extractedParts = [];
+    for (const i of indices) {
+      const item = modalState.importImages[i];
+      if (!item) continue;
+      item.status = 'scanning';
+      item.error = '';
+      renderModalOnly();
+      try {
+        const res = await transcribeImageWithGemini(item.base64Data, item.mimeType);
+        const txt = String(res?.transcribedText || '').trim();
+        item.status = 'done';
+        if (txt) extractedParts.push(txt);
+      } catch (err) {
+        item.status = 'error';
+        item.error = err?.message || 'OCR failed.';
+      }
+      renderModalOnly();
+    }
+
+    if (extractedParts.length) {
+      const combined = [modalState.importRawText.trim(), ...extractedParts].filter(Boolean).join('\n');
+      modalState.importRawText = combined;
+      const parsed = await parseSyllabusText(combined);
+      const { unique, skipped } = dedupePreviewAgainstSubject(parsed);
+      modalState.importPreview = unique;
+      modalState.importSkippedDuplicates = skipped;
+    }
+  } catch (err) {
+    modalState.importOcrError = err?.message || 'Failed to extract topics from images.';
+  } finally {
+    modalState.importScanning = false;
+    renderModalOnly();
+  }
+}
 
 let pendingConfidence = null; // { subjectId, topicId, topicName }
 let xpRulesOpen = false;
@@ -329,7 +454,7 @@ function renderApp() {
 
   let modalHtml = '';
   if (modalState.importOpen) {
-    modalHtml = renderImportModal(modalState.importPreview, modalState.importRawText);
+    modalHtml = renderImportModalFromState();
   } else if (modalState.backupOpen) {
     modalHtml = renderBackupModal(state);
   }
@@ -369,7 +494,7 @@ function renderModalOnly() {
   if (!mount) return;
   const state = getState();
   if (modalState.importOpen) {
-    mount.innerHTML = renderImportModal(modalState.importPreview, modalState.importRawText);
+    mount.innerHTML = renderImportModalFromState();
     attachModalEvents();
   } else if (modalState.backupOpen) {
     mount.innerHTML = renderBackupModal(state);
@@ -625,10 +750,80 @@ function attachModalEvents() {
     renderModalOnly();
   });
 
+  document.getElementById('bulkImportText')?.addEventListener('input', (e) => {
+    modalState.importRawText = e.target.value;
+  });
+
+  document.getElementById('bulkImportImgBtn')?.addEventListener('click', () => {
+    document.getElementById('bulkImportImgInput')?.click();
+  });
+
+  document.getElementById('bulkImportImgInput')?.addEventListener('change', (e) => {
+    addBulkImportImages(e.target.files);
+    e.target.value = '';
+  });
+
+  document.getElementById('runBulkImageOcrBtn')?.addEventListener('click', () => {
+    runBulkImageOcr();
+  });
+
+  document.querySelectorAll('[data-bulk-remove-img]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-bulk-remove-img'));
+      modalState.importImages = modalState.importImages.filter((_, i) => i !== idx);
+      renderModalOnly();
+    });
+  });
+
+  document.querySelectorAll('[data-bulk-retry-img]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-bulk-retry-img'));
+      runBulkImageOcr(idx);
+    });
+  });
+
+  document.getElementById('bulkSetupApiKeyBtn')?.addEventListener('click', () => {
+    modalState.importOpen = false;
+    renderModalOnly();
+    setState((prev) => ({ ...prev, activeView: 'notebook' }));
+    ensureNotebookModule().then((mod) => {
+      if (getState().activeView === 'notebook') {
+        mod.mountNotebookView(getState().activeSubjectId).then(() => mod.openNotebookKeyModal());
+      }
+    });
+  });
+
+  const bulkCard = document.getElementById('bulkImportModalCard');
+  if (bulkCard) {
+    bulkCard.addEventListener('paste', (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imgs = items
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      if (imgs.length) {
+        e.preventDefault();
+        addBulkImportImages(imgs);
+      }
+    });
+    bulkCard.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
+    });
+    bulkCard.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) {
+        e.preventDefault();
+        addBulkImportImages(e.dataTransfer.files);
+      }
+    });
+  }
+
   document.getElementById('previewImportBtn')?.addEventListener('click', async () => {
     const raw = document.getElementById('bulkImportText')?.value || '';
     modalState.importRawText = raw;
-    modalState.importPreview = await parseSyllabusText(raw);
+    const parsed = await parseSyllabusText(raw);
+    const { unique, skipped } = dedupePreviewAgainstSubject(parsed);
+    modalState.importPreview = unique;
+    modalState.importSkippedDuplicates = skipped;
     renderModalOnly();
   });
 
@@ -644,7 +839,14 @@ function attachModalEvents() {
     setState((prev) => {
       const subj = prev.subjects.find((s) => s.id === prev.activeSubjectId);
       if (subj) {
-        checked.forEach((name) => subj.topics.push(createTopic(name, { id: uid() })));
+        const existing = new Set((subj.topics || []).map((t) => t.name.trim().toLowerCase()));
+        checked.forEach((name) => {
+          const clean = String(name || '').trim();
+          if (clean && !existing.has(clean.toLowerCase())) {
+            existing.add(clean.toLowerCase());
+            subj.topics.push(createTopic(clean, { id: uid() }));
+          }
+        });
       }
       return prev;
     });
@@ -1195,11 +1397,52 @@ function attachEvents() {
     });
   });
 
-  // Bulk Import Modal trigger
+  // Quick Image Topic Import & Bulk Import Modal triggers
+  document.getElementById('openQuickImageImportBtn')?.addEventListener('click', () => {
+    document.getElementById('ledgerQuickImageInput')?.click();
+  });
+  document.getElementById('ledgerQuickImageInput')?.addEventListener('change', async (e) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    modalState.importOpen = true;
+    modalState.importRawText = '';
+    modalState.importPreview = null;
+    modalState.importImages = [];
+    modalState.importOcrError = '';
+    modalState.importSkippedDuplicates = 0;
+    await addBulkImportImages(files);
+    e.target.value = '';
+    if (getKeyVaultConfig().unlocked) {
+      runBulkImageOcr();
+    }
+  });
+  document.getElementById('newTopicInput')?.addEventListener('paste', async (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imgs = items
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (!imgs.length) return;
+    e.preventDefault();
+    modalState.importOpen = true;
+    modalState.importRawText = '';
+    modalState.importPreview = null;
+    modalState.importImages = [];
+    modalState.importOcrError = '';
+    modalState.importSkippedDuplicates = 0;
+    await addBulkImportImages(imgs);
+    if (getKeyVaultConfig().unlocked) {
+      runBulkImageOcr();
+    }
+  });
+
   document.getElementById('openBulkImportBtn')?.addEventListener('click', () => {
     modalState.importOpen = true;
     modalState.importRawText = '';
     modalState.importPreview = null;
+    modalState.importImages = [];
+    modalState.importOcrError = '';
+    modalState.importSkippedDuplicates = 0;
     renderModalOnly();
   });
 }

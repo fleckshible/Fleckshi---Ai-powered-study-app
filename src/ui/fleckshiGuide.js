@@ -1252,9 +1252,12 @@ export function openFleckshiHelp({ mode = null, nearPointer = false, source = 'a
   currentEmote =
     currentMode === 'intro' ? 'cheerful' : currentMode === 'add-subject' ? 'curious' : 'happy';
 
-  if (
+  if (source === 'launcher') {
+    // Anchor directly at the Help button's corner instead of jumping across the screen
+    positionedCoords = null;
+    clearSpotlightHighlight();
+  } else if (
     nearPointer &&
-    source !== 'launcher' &&
     lastExternalPointer &&
     Date.now() - lastExternalPointer.time < 5000
   ) {
